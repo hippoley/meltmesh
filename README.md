@@ -1,55 +1,85 @@
-# Field Studio
+<div align="center">
 
-一个面向浏览器的隐式建模实验室：导入 GLB 模型，将解析几何与网格距离场放入同一个实时渲染管线，并通过定向布尔、局部相场和材质所有权转移实现接触溶解。
+# MeltMesh
 
-> 项目仍处于实验阶段。它以 Womp 的连续建模体验作为产品表现参考，但不包含 Womp 源码、资产或专有实现，也不与 Womp 存在关联。
+### Make any GLB melt, merge, and react in your browser.
 
-## 功能
+Real-time directional SDF booleans, surface-bound phase fields, and original PBR materials in one depth-aware renderer.
 
-- 导入 GLB，并保留原始 Three.js PBR 材质与动画。
-- 通过 Blender 将网格转换为 `64³` SDF 与烘焙材质体。
-- 在统一颜色和深度管线中渲染 GLB、SDF 几何与地面。
-- 支持球体、圆角盒和导入网格的鼠标移动与缩放。
-- 使用有方向的 `A -> B` 布尔吸收，而不只是对称 smooth-min。
-- 在真实网格接触点积累具有历史的局部相场。
-- 使用各向异性相场，让溶解沿网格表面扩散并减少薄壁穿透。
-- 通过布尔结算器调整接触、侵蚀、平滑、扰动与时间演化。
-- WebGPU 可用时启用实验管线，初始化失败时保留 WebGL2 回退。
+[![License: MIT](https://img.shields.io/badge/license-MIT-7cff36.svg)](LICENSE)
+![WebGL2](https://img.shields.io/badge/renderer-WebGL2-ff6b35.svg)
+![WebGPU Experimental](https://img.shields.io/badge/WebGPU-experimental-f4d35e.svg)
+![Three.js r147](https://img.shields.io/badge/Three.js-r147-ffffff.svg)
+![No build step](https://img.shields.io/badge/build-none-54c6eb.svg)
 
-## 原理概览
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Math model](MATHEMATICAL_MODEL.md) · [Roadmap](#roadmap) · [中文](#中文简介)
 
-现有解析几何记为 `A`，导入模型记为 `B`：
+</div>
+
+MeltMesh is an open-source browser experiment for **reactive 3D modeling**. Import a GLB, move analytic shapes into it, and watch the old geometry dissolve into the imported model through a directional Boolean and a stateful contact field.
+
+This is not another triangle-mesh Boolean demo. The imported mesh, analytic SDF primitives, contact history, baked material volume, and original Three.js PBR scene are evaluated as parts of one interaction model.
+
+> **Status:** research prototype. The interaction model works, but thin meshes are still limited by the current `64³` imported SDF. See [Known limits](#known-limits).
+
+## Why MeltMesh?
+
+Most real-time SDF demos stop at symmetric smooth union:
 
 ```text
-dC = dB - erosionRadius(phase) + frontNoise
-erodedA = max(dA, -dC)
-result = adaptiveSmoothMin(erodedA, dB)
+smoothMin(shapeA, shapeB)
 ```
 
-接触点由 CPU 侧三线性 SDF 采样与梯度投影求得。每个接触点生成一个贴附表面的各向异性相场种子；相场沿切平面扩散较宽、沿法线方向较薄。
+That makes two shapes look glued together, but it cannot express **who consumes whom**, where the contact happened, or which material owns the new surface.
 
-完整推导、参数定义和验收指标见 [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md)。
+MeltMesh models a directional process:
 
-## 环境要求
+```text
+existing geometry A  ──dissolves into──▶  imported model B
+```
 
-- 支持 WebGL2 的现代浏览器，推荐 Chromium/Chrome。
-- Python 3.10 或更高版本。
-- Blender 4.x 或 5.x，用于 GLB 转换与体积烘焙。
-- 支持硬件加速的独立或集成显卡。
+- **Directional absorption** instead of symmetric blobs.
+- **Contact memory** instead of an effect that resets every frame.
+- **Surface-bound phase seeds** instead of a global dissolve slider.
+- **Material ownership** instead of painting one color over the result.
+- **Unified depth** instead of stacking unrelated WebGL canvases.
 
-项目不依赖 npm，也不需要前端构建步骤。Three.js r147 已保存在 `vendor/three` 中。
+## Features
 
-## 快速开始
+- Import animated GLB scenes and retain original Three.js PBR materials.
+- Bake imported meshes into an SDF and a sampled material volume with Blender.
+- Move and scale spheres, rounded boxes, and imported objects with the mouse.
+- Erode existing primitives into imported geometry with an `A -> B` Boolean solver.
+- Accumulate multiple independent dissolve traces at measured contact positions.
+- Project contact samples onto the imported surface using the SDF gradient.
+- Spread dissolution along the surface with anisotropic phase fields.
+- Preserve contact history, or let it recover at a tunable rate.
+- Render the original GLB and generated SDF surfaces through one depth pipeline.
+- Use an experimental WebGPU path with a WebGL2 fallback.
+- Tune contact, erosion, smoothing, noise, dissolve rate, and recovery live.
+
+## Quick start
+
+### Requirements
+
+- Python 3.10+
+- Blender 4.x or 5.x
+- A modern WebGL2 browser; Chromium/Chrome is recommended
+- Hardware acceleration enabled
+
+No npm install. No bundler. No frontend build step.
+
+### Run
 
 ```bash
 git clone <your-repository-url>
-cd sdf-studio
+cd meltmesh
 python server.py
 ```
 
-浏览器打开 `http://127.0.0.1:4173/`。
+Open [http://127.0.0.1:4173/](http://127.0.0.1:4173/).
 
-如果 `blender` 没有加入系统 `PATH`，请设置环境变量：
+If Blender is not on `PATH`, point MeltMesh to the executable:
 
 ```powershell
 $env:FIELD_STUDIO_BLENDER = "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"
@@ -61,98 +91,144 @@ export FIELD_STUDIO_BLENDER=/path/to/blender
 python server.py
 ```
 
-## 导入流程
+Click **Import**, choose a `.glb`, wait for the SDF bake, then move a sphere or rounded box into the imported model. Keep the objects in contact to accumulate the local phase field.
 
-点击右上角“导入”并选择 `.glb` 文件。服务会调用 Blender：
+## How it works
 
-1. 清理不兼容的 GLB 扩展字段。
-2. 读取网格、动画帧与材质。
-3. 生成 STL 动画缓存。
-4. 采样网格 SDF。
-5. 烘焙颜色与粗糙度体积。
-6. 将结果写入本地 `cache/`。
+```mermaid
+flowchart LR
+    GLB["Imported GLB"] --> PBR["Original PBR scene"]
+    GLB --> Blender["Blender conversion"]
+    Blender --> SDF["64³ mesh SDF"]
+    Blender --> Material["Material volume"]
+    Primitive["Analytic primitives"] --> Boolean["Directional Boolean"]
+    SDF --> Contact["Contact projection"]
+    Contact --> Phase["Surface phase seeds"]
+    Phase --> Boolean
+    Material --> Ownership["Material ownership"]
+    Boolean --> Raymarch["Sphere tracing"]
+    Ownership --> Raymarch
+    PBR --> Composite["Unified color + depth"]
+    Raymarch --> Composite
+```
 
-单文件上传限制为 500 MB，转换超时为 5 分钟。
+Let `A` be the existing analytic geometry and `B` the imported mesh. MeltMesh builds a phase-controlled consuming field around `B`:
 
-## 布尔结算器
+```text
+dC      = dB - erosionRadius(phase) + frontNoise
+erodedA = max(dA, -dC)
+result  = adaptiveSmoothMin(erodedA, dB)
+```
 
-| 参数 | 作用 | 调整建议 |
+Each measured contact creates an anisotropic phase seed:
+
+```text
+phase = 1 - product(1 - seedContribution)
+```
+
+The field spreads farther along the mesh tangent plane than along its normal, reducing accidental bleed through thin surfaces. The full derivation, equations, parameter mapping, and acceptance criteria are in [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md).
+
+## Boolean solver controls
+
+| Control | What it changes | If the result looks wrong |
 |---|---|---|
-| 融合强度 | 全局反应尺度 | 过大会使几何膨胀 |
-| 接触阈值 | 开始积累相场的距离 | 隔空反应时降低 |
-| 侵蚀半径 | 导入模型吸收旧几何的深度 | 溶解不明显时提高 |
-| 布尔平滑 | 最终连接面的平滑范围 | 出现鼓包时降低 |
-| 前沿扰动 | 侵蚀边界的不规则程度 | 规则切割感明显时提高 |
-| 溶解速率 | 接触时的相场积累速度 | 反馈太慢时提高 |
-| 恢复速率 | 分离后的相场衰减速度 | 设置为 `0` 可保留痕迹 |
+| Blend strength | Global interaction scale | Lower it when objects inflate |
+| Contact threshold | Distance that starts phase accumulation | Lower it when objects react in mid-air |
+| Erosion radius | How deeply `B` consumes `A` | Raise it when dissolution is too weak |
+| Boolean smoothing | Width of the final connection | Lower it when the joint looks swollen |
+| Front noise | Irregularity of the erosion boundary | Raise it when the cut looks mechanical |
+| Dissolve rate | Phase growth while touching | Raise it for faster feedback |
+| Recovery rate | Phase decay after separation | Set it to `0` to retain traces |
 
-推荐起始值：
-
-```text
-融合强度    0.28
-接触阈值    0.22
-侵蚀半径    1.05
-布尔平滑    0.14
-前沿扰动    0.18
-溶解速率    0.85
-恢复速率    0.01
-```
-
-## 项目结构
+Suggested baseline:
 
 ```text
-sdf-studio/
-├── app.js                     WebGL2 SDF、状态与交互
-├── three-renderer.js          Three.js PBR 与统一深度合成
-├── webgpu-renderer.js         实验性 WebGPU 管线
-├── convert_glb.py             Blender 网格/SDF/材质转换
-├── server.py                  本地静态服务与转换 API
-├── index.html                 应用界面
-├── styles.css                 界面样式
-├── MATHEMATICAL_MODEL.md      数学建模文档
-├── THIRD_PARTY_NOTICES.md     第三方组件声明
-└── vendor/three/              Three.js r147 与许可证
+Blend strength     0.28
+Contact threshold  0.22
+Erosion radius     1.05
+Boolean smoothing  0.14
+Front noise        0.18
+Dissolve rate      0.85
+Recovery rate      0.01
 ```
 
-## 当前限制
+## GLB conversion pipeline
 
-- 固定 `64³` SDF 对细网、薄壁和锐利边缘的表达有限。
-- 局部相场由八个解析种子近似，不是完整的三维 PDE 网格。
-- 烘焙材质体目前主要保存颜色与粗糙度。
-- 仅支持 GLB；FBX、USD、OBJ 等格式尚未接入转换入口。
-- Blender 转换是同步请求，大文件处理期间浏览器需要等待。
-- 尚未建立自动化 GPU 截图和性能回归测试。
+The local server invokes Blender to:
 
-## 路线图
+1. sanitize incompatible GLB extension values;
+2. evaluate meshes and animation frames;
+3. generate an STL animation cache;
+4. sample a signed or shell distance volume;
+5. bake base color and roughness into a material volume; and
+6. write disposable artifacts to `cache/`.
 
-- [ ] 局部 `128³` 或自适应稀疏窄带 SDF。
-- [ ] GPU ping-pong 三维相场演化。
-- [ ] 完整 PBR 材质体：金属度、法线、透射和发光。
-- [ ] 基于屏幕误差的自适应 Sphere Tracing。
-- [ ] OBJ、FBX、USD/USDZ 导入转换。
-- [ ] 可撤销的对象与布尔操作历史。
-- [ ] 桌面端和移动端视觉回归测试。
+The upload limit is 500 MB and the conversion timeout is five minutes.
 
-## 贡献
+## Project layout
 
-欢迎提交 issue 和 pull request。提交代码前请：
+```text
+meltmesh/
+├── app.js                     WebGL2 SDF, state, and interaction
+├── three-renderer.js          Three.js PBR and unified depth composite
+├── webgpu-renderer.js         Experimental WebGPU path
+├── convert_glb.py             Blender mesh/SDF/material conversion
+├── server.py                  Local server and conversion API
+├── index.html                 Application interface
+├── styles.css                 Interface styling
+├── MATHEMATICAL_MODEL.md      Full mathematical model
+├── THIRD_PARTY_NOTICES.md     Dependency attribution
+└── vendor/three/              Three.js r147 and its license
+```
 
-1. 不要提交 `cache/`、日志或导入模型。
-2. 着色器修改需测试未导入和已导入两种状态。
-3. 在问题报告中说明浏览器、显卡、Blender 版本和复现步骤。
-4. 不要提交来源不明、许可证不兼容的代码或资产。
-5. 第三方代码必须保留许可证并更新 `THIRD_PARTY_NOTICES.md`。
+## Known limits
 
-## 开源许可
+- The fixed `64³` SDF cannot preserve every wire, thin wall, or sharp metal edge.
+- Eight analytic phase seeds approximate a local field; this is not a full 3D PDE grid.
+- The baked material volume currently focuses on base color and roughness.
+- The conversion endpoint currently accepts GLB only.
+- Blender conversion is synchronous, so large assets block the import workflow.
+- Automated GPU screenshot and performance regression tests are not in place yet.
 
-项目自有代码采用 [MIT License](LICENSE)，允许使用、修改、分发和商业使用，但必须保留版权与许可证声明。
+## Roadmap
 
-Three.js 与 GLTFLoader 由 Three.js Authors 按 MIT License 发布，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [vendor/three/LICENSE](vendor/three/LICENSE)。
+- [ ] Local `128³` or adaptive sparse narrow-band SDF
+- [ ] GPU ping-pong 3D phase-field evolution
+- [ ] Full PBR volume: metalness, normals, transmission, and emission
+- [ ] Screen-error-aware adaptive sphere tracing
+- [ ] OBJ, FBX, USD, and USDZ conversion
+- [ ] Undoable object and Boolean operation history
+- [ ] Reproducible desktop/mobile visual regression tests
+- [ ] Shareable scene files and hosted demos
 
-## 致谢与来源边界
+## Contributing
 
-- [Three.js](https://github.com/mrdoob/three.js)：PBR、GLB 加载与 WebGL 渲染基础。
-- Khronos glTF：GLB 格式及材质扩展规范。
-- SDF、smooth CSG、Sphere Tracing、有限差分和相场属于公开数学与图形学方法。
-- Womp 仅作为交互表现对标；本项目没有使用其源码或专有资源。
-- Matt Keeter 的 Fidget 是隐式建模方向的公开技术启发；本仓库没有包含 Fidget 源码片段。
+Issues and pull requests are welcome.
+
+1. Do not commit `cache/`, logs, or imported user models.
+2. Test shader changes both with and without an imported model.
+3. Include browser, GPU, Blender version, and reproduction steps in bug reports.
+4. Do not submit code or assets with unknown or incompatible licensing.
+5. Preserve third-party licenses and update `THIRD_PARTY_NOTICES.md` when needed.
+
+High-impact contribution areas are adaptive SDF generation, phase-field compute, PBR volume baking, GPU profiling, and visual regression infrastructure.
+
+## 中文简介
+
+MeltMesh 是一个浏览器实时隐式建模实验项目。它允许导入 GLB，保留原始 PBR 材质，并让球体、圆角盒等现有几何通过定向布尔和局部相场逐渐溶解进导入模型。
+
+项目当前重点不是复刻某个商业工具，而是探索一套可解释、可调节、可开源的连续几何交互模型。中文数学说明见 [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md)。
+
+## License
+
+MeltMesh is released under the [MIT License](LICENSE).
+
+Bundled Three.js files remain under their original MIT license. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [vendor/three/LICENSE](vendor/three/LICENSE).
+
+## Attribution and independence
+
+- [Three.js](https://github.com/mrdoob/three.js) provides the PBR, GLB loading, and WebGL foundation.
+- Khronos glTF specifications define the interoperable GLB and material formats.
+- SDFs, smooth CSG, sphere tracing, finite differences, and phase fields are established public mathematical and graphics techniques.
+- Womp is a visual interaction benchmark only. MeltMesh contains no Womp source code or proprietary assets and is not affiliated with Womp.
+- Matt Keeter's Fidget is acknowledged as public technical inspiration for implicit modeling. No Fidget source fragment is bundled here.

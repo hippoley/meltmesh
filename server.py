@@ -123,5 +123,5 @@ class FieldStudioHandler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     CACHE.mkdir(exist_ok=True)
-    print("Field Studio running at http://127.0.0.1:4173", flush=True)
+    print("MeltMesh running at http://127.0.0.1:4173", flush=True)
     ThreadingHTTPServer(("127.0.0.1", 4173), FieldStudioHandler).serve_forever()
