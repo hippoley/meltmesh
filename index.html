@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111310">
+  <title>Field Studio - SDF 实时实验室</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><strong>FIELD STUDIO</strong><span class="version">SDF / 01</span></div>
+      <div class="top-actions">
+        <div class="status"><span class="status-dot"></span><span id="renderStatus">WebGL2 实时</span><span class="divider"></span><span id="fps">-- FPS</span></div>
+        <button class="import-button" id="importButton" type="button" title="导入 OBJ 或 STL">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0-12 4 4m-4-4L8 7M5 14v5h14v-5"/></svg><span>导入</span>
+        </button>
+        <input id="fileInput" type="file" accept=".glb,.obj,.stl,.abc,.vdb,model/gltf-binary,model/obj,model/stl" multiple hidden>
+      </div>
+      <button class="icon-button" id="resetView" aria-label="重置视角" title="重置视角">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v6h6"/></svg>
+      </button>
+    </header>
+
+    <section class="workspace">
+      <aside class="scene-panel" aria-label="场景对象">
+        <div class="panel-heading"><span>场景</span><span class="count">3</span></div>
+        <button class="scene-item active" data-object="sphere"><span class="shape-icon sphere"></span><span><strong>球体</strong><small>SDF Sphere</small></span><span class="visibility" aria-hidden="true">●</span></button>
+        <button class="scene-item" data-object="box"><span class="shape-icon box"></span><span><strong>圆角盒</strong><small>SDF Round Box</small></span><span class="visibility" aria-hidden="true">●</span></button>
+        <button class="scene-item" data-focus="ground"><span class="shape-icon plane"></span><span><strong>地面</strong><small>Distance Plane</small></span><span class="visibility" aria-hidden="true">●</span></button>
+        <button class="scene-item" data-focus="light"><span class="shape-icon light"></span><span><strong>主光源</strong><small>Directional</small></span><span class="visibility" aria-hidden="true">●</span></button>
+        <div id="importedObjects"></div>
+        <div class="scene-footer"><span>拖动旋转</span><span>滚轮缩放</span></div>
+      </aside>
+
+      <div class="viewport fusion-active" id="viewport">
+        <canvas id="glCanvas" aria-label="SDF 三维实时渲染视口"></canvas>
+        <canvas id="gpuCanvas" class="gpu-canvas" aria-label="WebGPU SDF 实时渲染视口"></canvas>
+        <canvas id="threeCanvas" class="three-canvas" aria-label="Three.js GLB PBR 渲染层"></canvas>
+        <canvas id="meshCanvas" class="mesh-canvas" aria-label="导入网格渲染层"></canvas>
+        <div class="viewport-tools" role="group" aria-label="鼠标操作模式"><button class="active" data-mode="move">移动</button><button data-mode="orbit">视角</button></div>
+        <div class="viewport-label"><span>透视</span><span>96 STEPS</span></div>
+        <div class="axis" aria-hidden="true"><i class="axis-y"></i><i class="axis-x"></i><b>Y</b><em>X</em></div>
+        <div class="error-panel" id="errorPanel" hidden><strong>无法启动实时渲染</strong><p id="errorMessage"></p></div>
+        <div class="drop-hint" id="dropHint" hidden><strong>放开以导入模型</strong><span>GLB / OBJ / STL</span></div>
+        <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+        <div class="timeline" id="timeline" hidden>
+          <button id="playSequence" class="play-button" type="button" aria-label="暂停序列" title="播放或暂停">Ⅱ</button>
+          <span id="frameLabel">1 / 1</span>
+          <input id="frameSlider" type="range" min="0" max="0" value="0" step="1" aria-label="流体模拟帧">
+          <label>FPS <input id="sequenceFps" type="number" min="1" max="60" value="24"></label>
+        </div>
+      </div>
+
+      <aside class="inspector" aria-label="模型参数">
+        <div class="panel-heading"><span id="selectedName">球体 · 变换</span><button id="resetObject" class="text-button">复位</button></div>
+        <div class="transform-grid">
+          <label><span>X</span><input id="tx" type="number" min="-4" max="4" step="0.05" value="-0.55"></label>
+          <label><span>Y</span><input id="ty" type="number" min="-4" max="4" step="0.05" value="0"></label>
+          <label><span>Z</span><input id="tz" type="number" min="-4" max="4" step="0.05" value="0"></label>
+          <label class="scale-field"><span>缩放</span><input id="objectScale" type="number" min="0.1" max="4" step="0.05" value="1"></label>
+        </div>
+        <label class="fusion-toggle"><input id="meshFusion" type="checkbox" checked disabled><span id="fusionLabel">等待导入真实 SDF</span><i></i></label>
+        <div class="panel-heading"><span>几何参数</span><button id="randomize" class="text-button">随机</button></div>
+        <div class="preset-group" role="group" aria-label="造型预设">
+          <button class="preset active" data-preset="blend">融合</button>
+          <button class="preset" data-preset="stack">堆叠</button>
+          <button class="preset" data-preset="orbit">环绕</button>
+        </div>
+        <div class="control-list">
+          <label class="control"><span><b>融合强度</b><output for="blend">0.28</output></span><input id="blend" type="range" min="0.05" max="1.2" value="0.28" step="0.01"></label>
+          <div class="solver-label"><span>布尔结算器</span><code>A → B</code></div>
+          <label class="control"><span><b>接触阈值</b><output for="contactThreshold">0.32</output></span><input id="contactThreshold" type="range" min="0.05" max="0.80" value="0.32" step="0.01"></label>
+          <label class="control"><span><b>侵蚀半径</b><output for="consumeScale">0.86</output></span><input id="consumeScale" type="range" min="0.10" max="1.60" value="0.86" step="0.01"></label>
+          <label class="control"><span><b>布尔平滑</b><output for="booleanSmooth">0.24</output></span><input id="booleanSmooth" type="range" min="0.02" max="0.75" value="0.24" step="0.01"></label>
+          <label class="control"><span><b>前沿扰动</b><output for="frontNoise">0.14</output></span><input id="frontNoise" type="range" min="0.00" max="0.40" value="0.14" step="0.01"></label>
+          <label class="control"><span><b>溶解速率</b><output for="dissolveRate">0.55</output></span><input id="dissolveRate" type="range" min="0.05" max="2.00" value="0.55" step="0.05"></label>
+          <label class="control"><span><b>恢复速率</b><output for="recoveryRate">0.04</output></span><input id="recoveryRate" type="range" min="0.00" max="0.50" value="0.04" step="0.01"></label>
+          <label class="control"><span><b>形体间距</b><output for="spacing">1.05</output></span><input id="spacing" type="range" min="0.3" max="2.2" value="1.05" step="0.01"></label>
+          <label class="control"><span><b>球体尺寸</b><output for="radius">1.00</output></span><input id="radius" type="range" min="0.45" max="1.45" value="1" step="0.01"></label>
+          <label class="control"><span><b>圆角尺寸</b><output for="boxSize">0.78</output></span><input id="boxSize" type="range" min="0.4" max="1.25" value="0.78" step="0.01"></label>
+        </div>
+        <div class="panel-heading material-heading"><span>表面</span><span class="tag" id="materialStatus">高透弹珠</span></div>
+        <div class="material-presets" role="group" aria-label="玻璃材质预设">
+          <button class="material-preset active" data-material="marble">高透弹珠</button>
+          <button class="material-preset" data-material="crystal">水晶</button>
+          <button class="material-preset" data-material="smoke">烟熏</button>
+          <button class="material-preset" data-material="frosted">磨砂</button>
+        </div>
+        <div class="swatches" role="group" aria-label="表面颜色">
+          <button class="swatch active" data-color="0.68,0.86,0.94" style="--swatch:#addbea" aria-label="冰蓝玻璃"></button>
+          <button class="swatch" data-color="0.05,0.58,1.0" style="--swatch:#0d94ff" aria-label="电光蓝"></button>
+          <button class="swatch" data-color="0.48,1.0,0.12" style="--swatch:#7aff1f" aria-label="青柠绿"></button>
+          <button class="swatch" data-color="1.0,0.36,0.05" style="--swatch:#ff5c0d" aria-label="橘子汽水"></button>
+          <button class="swatch" data-color="1.0,0.88,0.06" style="--swatch:#ffe00f" aria-label="柠檬黄"></button>
+        </div>
+        <div class="control-list compact">
+          <label class="control"><span><b>粗糙度</b><output for="roughness">0.06</output></span><input id="roughness" type="range" min="0.02" max="0.75" value="0.06" step="0.01"></label>
+          <label class="control"><span><b>玻璃反射</b><output for="specular">0.96</output></span><input id="specular" type="range" min="0" max="1" value="0.96" step="0.01"></label>
+          <label class="control"><span><b>透射率</b><output for="transmission">0.98</output></span><input id="transmission" type="range" min="0.15" max="1" value="0.98" step="0.01"></label>
+          <label class="control"><span><b>折射率 IOR</b><output for="ior">1.52</output></span><input id="ior" type="range" min="1" max="2.2" value="1.52" step="0.01"></label>
+        </div>
+        <div class="equation"><span>场函数</span><code>sminₖ₍ₚ₎(A \ C(B), B)</code></div>
+      </aside>
+    </section>
+  </main>
+  <script src="webgpu-renderer.js?v=12"></script>
+  <script type="module" src="three-renderer.js?v=26"></script>
+  <script src="app.js?v=41"></script>
+</body>
+</html>
