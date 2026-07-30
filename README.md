@@ -12,13 +12,15 @@ Real-time directional SDF booleans, surface-bound phase fields, and original PBR
 ![Three.js r147](https://img.shields.io/badge/Three.js-r147-ffffff.svg)
 ![No build step](https://img.shields.io/badge/build-none-54c6eb.svg)
 
-[Quick start](#quick-start) · [How it works](#how-it-works) · [Math model](MATHEMATICAL_MODEL.md) · [Roadmap](#roadmap) · [中文](#中文简介)
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Refraction model](REFRACTION_MODEL.md) · [Math model](MATHEMATICAL_MODEL.md) · [Roadmap](#roadmap) · [中文](#中文简介)
 
 </div>
 
 MeltMesh is an open-source browser experiment for **reactive 3D modeling**. Import a GLB, move analytic shapes into it, and watch the old geometry dissolve into the imported model through a directional Boolean and a stateful contact field.
 
 This is not another triangle-mesh Boolean demo. The imported mesh, analytic SDF primitives, contact history, baked material volume, and original Three.js PBR scene are evaluated as parts of one interaction model.
+
+Its research direction is the **Refractive Contact Field**: when objects touch, geometry and material traits do not merely blend. They reflect across the contact membrane, refract through material impedance, replicate with controlled mutation, and dissolve along a surface phase field. Read the [concept and equations](REFRACTION_MODEL.md).
 
 > **Status:** research prototype. The interaction model works, but thin meshes are still limited by the current `64³` imported SDF. See [Known limits](#known-limits).
 
@@ -177,6 +179,7 @@ meltmesh/
 ├── index.html                 Application interface
 ├── styles.css                 Interface styling
 ├── MATHEMATICAL_MODEL.md      Full mathematical model
+├── REFRACTION_MODEL.md        Reflection/replication research model
 ├── THIRD_PARTY_NOTICES.md     Dependency attribution
 └── vendor/three/              Three.js r147 and its license
 ```
