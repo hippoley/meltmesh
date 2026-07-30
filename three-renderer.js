@@ -325,6 +325,7 @@ if (uInteractionEnabled > 0.5) {
         roughness: materialReport.roughness,
         transparent: materialReport.transparent,
       };
+      if (index === 0 && state.objects?.mesh) state.objects.mesh.materialReport = state.imported?.[index]?.materialReport;
       models.push({ model, mixer, index, name: list[index].name, basePosition: model.position.clone(), baseScale: scale, sourceColor, materialReport });
       if (mixer) mixers.push(mixer);
     }

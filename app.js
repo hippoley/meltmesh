@@ -270,8 +270,8 @@ function selectObject(name){
   updateMaterialReadout();
 }
 function updateMaterialReadout(){
-  const report=state.objects[state.selected]?.materialReport;
-  document.getElementById('materialReadoutStatus').textContent=report?'已解析':'未导入';
+  const report=state.objects[state.selected]?.materialReport || (state.selected==='mesh'?state.imported?.[0]?.materialReport:null);
+  document.getElementById('materialReadoutStatus').textContent=report?'已解析':'请选择 GLB';
   document.getElementById('readoutMaterialCount').textContent=report?String(report.materialCount):'--';
   document.getElementById('readoutTextureCount').textContent=report?String(report.textureCount):'--';
   document.getElementById('readoutMetalness').textContent=report?report.metalness.toFixed(2):'--';

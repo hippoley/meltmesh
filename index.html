@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#111310">
   <title>MeltMesh - Reactive SDF Studio</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
   <main class="app-shell">
@@ -64,7 +64,7 @@
         <label class="fusion-toggle"><input id="meshFusion" type="checkbox" checked disabled><span id="fusionLabel">等待导入真实 SDF</span><i></i></label>
         <label class="fusion-toggle debug-toggle"><input id="contactDebug" type="checkbox" checked><span>接触显影</span><i></i></label>
         <section class="material-readout" aria-label="导入材质诊断">
-          <header><span>导入材质</span><strong id="materialReadoutStatus">未导入</strong></header>
+          <header><span>导入材质</span><strong id="materialReadoutStatus">请选择 GLB</strong></header>
           <div class="readout-grid">
             <span>材质</span><output id="readoutMaterialCount">--</output>
             <span>纹理</span><output id="readoutTextureCount">--</output>
@@ -123,8 +123,8 @@
     </section>
   </main>
   <script src="webgpu-renderer.js?v=12"></script>
-  <script src="domain-router.js?v=2"></script>
-  <script type="module" src="three-renderer.js?v=31"></script>
-  <script src="app.js?v=49"></script>
+  <script src="domain-router.js?v=3"></script>
+  <script type="module" src="three-renderer.js?v=32"></script>
+  <script src="app.js?v=50"></script>
 </body>
 </html>
