@@ -193,6 +193,16 @@ float interactionNoise(vec3 p) {
              mix(mix(interactionHash(cell + vec3(0,0,1)), interactionHash(cell + vec3(1,0,1)), f.x),
                  mix(interactionHash(cell + vec3(0,1,1)), interactionHash(cell + vec3(1,1,1)), f.x), f.y), f.z);
 }
+float refractiveContactSpectrum(vec3 p) {
+  const float golden = 2.39996323;
+  float field = 0.0;
+  for (int i = 0; i < 5; i++) {
+    float a = float(i) * golden;
+    vec3 k = normalize(vec3(cos(a), sin(a), 0.24 + float(i) * 0.09));
+    field += cos(dot(p, k) * (3.0 + float(i) * 0.55) + uContactTime * (0.10 + float(i) * 0.018));
+  }
+  return clamp(0.5 + field / 10.0, 0.0, 1.0);
+}
 void main() {`)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 float interactionEdge = 0.0;
@@ -211,14 +221,16 @@ if (uInteractionEnabled > 0.5) {
 }`)
         .replace('#include <output_fragment>', `
 if (uInteractionEnabled > 0.5) {
-  diffuseColor.rgb = mix(diffuseColor.rgb, uReactionColor, interactionWet * 0.16);
+  float contactSpectrum = refractiveContactSpectrum(vInteractionWorld);
+  vec3 reflectedMaterial = mix(uReactionColor, vec3(0.94, 0.34, 0.15), contactSpectrum);
+  diffuseColor.rgb = mix(diffuseColor.rgb, reflectedMaterial, interactionWet * 0.22);
   outgoingLight = mix(outgoingLight, outgoingLight * 0.72 + uReactionColor * 0.16, interactionWet * 0.42);
-  outgoingLight += uReactionColor * interactionEdge * 1.65;
+  outgoingLight += mix(uReactionColor, vec3(0.98, 0.78, 0.28), contactSpectrum) * interactionEdge * 1.15;
 }
 #include <output_fragment>`);
       interactionShaders.push(shader);
     };
-    material.customProgramCacheKey = () => 'directional-absorption-v3';
+    material.customProgramCacheKey = () => 'refractive-contact-material-v4';
   }
 
   function disposeModel() {
