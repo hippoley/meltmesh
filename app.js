@@ -272,13 +272,15 @@ async function importFiles(fileList){
 }
 async function importGlbs(files){
   const existing=Array.isArray(state.imported)?state.imported:[];
-  const accepted=files.slice(0,Math.max(0,5-existing.length));
+  const stored=Array.isArray(window.__meltmeshImportedFiles)?window.__meltmeshImportedFiles:[];
+  const accepted=files.slice(0,Math.max(0,5-stored.length));
   if(!accepted.length){showToast('已达到 5 个导入物体上限',true);return;}
   const file=accepted[0];
-  const allFiles=existing.map(item=>item.file).filter(Boolean).concat(accepted);
+  const allFiles=stored.concat(accepted).slice(0,5);
+  window.__meltmeshImportedFiles=allFiles;
   pendingThreeFiles=allFiles;pendingThreeFile=file;threeModelReady=false;state.meshVolumeReady=false;
   window.__pendingThreeFiles=allFiles;
-  state.imported=existing.concat(accepted.map((item,index)=>{const slot=existing.length+index;return{id:`mesh-${slot}`,name:item.name,file:item,position:[(slot%3-1)*1.35,Math.floor(slot/3)*0.95-0.45,0],scale:1,bounds:[1,1,1]};}));
+  state.imported=allFiles.map((item,index)=>{const previous=existing[index];return{id:`mesh-${index}`,name:item.name,file:item,position:previous?.position||[(index%3-1)*1.35,Math.floor(index/3)*0.95-0.45,0],scale:previous?.scale||1,bounds:previous?.bounds||[1,1,1]};});
   for(const item of state.imported) state.objects[item.id]=item;
   state.objects.mesh=state.imported[0]||state.objects.mesh;
   document.getElementById('importedObjects').innerHTML=state.imported.map((item,index)=>`<button class="scene-item" data-object="mesh-${index}"><span class="shape-icon mesh"></span><span><strong>${item.name.replace(/[<>&]/g,'')}</strong><small>GLB · 交互物体 ${index+1}/5</small></span><span class="visibility">●</span></button>`).join('');bindSceneItems();selectObject('mesh-0');
