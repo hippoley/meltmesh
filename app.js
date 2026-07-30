@@ -284,6 +284,7 @@ async function importGlbs(files){
   for(const item of state.imported) state.objects[item.id]=item;
   state.objects.mesh=state.imported[0]||state.objects.mesh;
   document.getElementById('importedObjects').innerHTML=state.imported.map((item,index)=>`<button class="scene-item" data-object="mesh-${index}"><span class="shape-icon mesh"></span><span><strong>${item.name.replace(/[<>&]/g,'')}</strong><small>GLB · 交互物体 ${index+1}/5</small></span><span class="visibility">●</span></button>`).join('');bindSceneItems();selectObject('mesh-0');
+  document.querySelector('.scene-panel .count').textContent=String(3+state.imported.length);
   const fusion=document.getElementById('meshFusion');fusion.checked=true;fusion.disabled=true;setFusionMode(true);
   if(threeRenderer){threeRenderer.loadFile(file).then(()=>{threeModelReady=true;document.getElementById('renderStatus').textContent=webgpuRenderer?'Three.js PBR + WebGPU SDF':'Three.js PBR + SDF';showToast('Three.js 已载入原始 GLB 材质与动画');}).catch(error=>{const detail=String(error?.stack||error?.message||error);showToast(`Three.js 加载失败：${error.message}`,true);fetch(`/client-error?source=three-load&message=${encodeURIComponent(detail)}`).catch(()=>{});});}
   try{
