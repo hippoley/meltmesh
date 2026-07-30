@@ -188,7 +188,7 @@ document.getElementById('resetView').addEventListener('click',()=>Object.assign(
 let dragging=false,lastX=0,lastY=0;
 interactionSurface.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;interactionSurface.setPointerCapture(e.pointerId);});
 interactionSurface.addEventListener('pointermove',e=>{if(!dragging)return;const dx=e.clientX-lastX,dy=e.clientY-lastY;if(state.mode==='move'){const object=state.objects[state.selected],speed=state.distance*.0018;object.position[0]+=dx*Math.cos(state.yaw)*speed;object.position[2]-=dx*Math.sin(state.yaw)*speed;object.position[1]-=dy*speed;state.preset=3;selectObject(state.selected);}else{state.yaw-=dx*.008;state.pitch=Math.max(-1.25,Math.min(1.25,state.pitch+dy*.008));}lastX=e.clientX;lastY=e.clientY;});
-interactionSurface.addEventListener('pointerup',()=>dragging=false); interactionSurface.addEventListener('pointercancel',()=>dragging=false);
+interactionSurface.addEventListener('pointerup',()=>{dragging=false;scheduleVolumeRebuild();}); interactionSurface.addEventListener('pointercancel',()=>dragging=false);
 interactionSurface.addEventListener('wheel',e=>{e.preventDefault();state.distance=Math.max(3.3,Math.min(11,state.distance+e.deltaY*.006));},{passive:false});
 
 const meshGl=meshCanvas.getContext('webgl2',{alpha:true,antialias:true,premultipliedAlpha:false});
@@ -213,6 +213,23 @@ void main(){
   outColor=vec4(col,0.96);
 }`;
 let meshProgram=null,meshFrames=[],meshSdfTexture=null,meshMaterialTexture=null,meshSdfData=null,meshMaterialData=null,webgpuRenderer=null,threeRenderer=null,threeModelReady=false,pendingThreeFile=null,pendingThreeFiles=[],meshVertexCount=0,sequencePlaying=true,sequenceStart=performance.now(),sequenceFrame=0;
+function rebuildImportedVolume(){
+  const sources=state.imported.filter(item=>item.sdfData&&item.sdfSize&&item.sourceBounds);if(!sources.length)return;
+  const resolution=Math.min(64,Math.max(...sources.map(item=>item.sdfSize))),min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
+  for(const item of sources)for(let axis=0;axis<3;axis++){const extent=item.sourceBounds[axis]*item.scale;min[axis]=Math.min(min[axis],item.position[axis]-extent);max[axis]=Math.max(max[axis],item.position[axis]+extent);}
+  const center=min.map((value,axis)=>(value+max[axis])*.5),bounds=max.map((value,axis)=>Math.max((value-min[axis])*.5,.05));
+  const sdf=new Float32Array(resolution**3),material=new Uint8Array(resolution**3*4);
+  for(let z=0;z<resolution;z++)for(let y=0;y<resolution;y++)for(let x=0;x<resolution;x++){
+    const p=[x,y,z].map((value,axis)=>center[axis]+((value/(resolution-1))-.5)*bounds[axis]*2),index=x+resolution*(y+resolution*z);let best=Infinity,winner=null,winnerIndex=0;
+    for(const item of sources){const local=p.map((value,axis)=>(value-item.position[axis])/item.scale),uv=local.map((value,axis)=>value/(item.sourceBounds[axis]*2)+.5),clamped=uv.map(value=>Math.max(0,Math.min(1,value))),grid=clamped.map(value=>Math.round(value*(item.sdfSize-1))),sourceIndex=grid[0]+item.sdfSize*(grid[1]+item.sdfSize*grid[2]),outside=Math.hypot(...uv.map((value,axis)=>Math.max(Math.abs(value-.5)-.5,0)*item.sourceBounds[axis]*2)),distance=item.sdfData[sourceIndex]*item.scale+outside;if(distance<best){best=distance;winner=item;winnerIndex=sourceIndex;}}
+    sdf[index]=best;if(winner?.materialData)material.set(winner.materialData.subarray(winnerIndex*4,winnerIndex*4+4),index*4);else material.set([143,158,173,72],index*4);
+  }
+  meshSdfData=sdf;meshMaterialData=material;state.objects.mesh={position:center,scale:1,bounds};
+  if(meshSdfTexture)gl.deleteTexture(meshSdfTexture);meshSdfTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_3D,meshSdfTexture);const filter=gl.getExtension('OES_texture_float_linear')?gl.LINEAR:gl.NEAREST;for(const parameter of [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_3D,parameter,filter);for(const parameter of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T,gl.TEXTURE_WRAP_R])gl.texParameteri(gl.TEXTURE_3D,parameter,gl.CLAMP_TO_EDGE);gl.texImage3D(gl.TEXTURE_3D,0,gl.R32F,resolution,resolution,resolution,0,gl.RED,gl.FLOAT,sdf);
+  if(meshMaterialTexture)gl.deleteTexture(meshMaterialTexture);meshMaterialTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_3D,meshMaterialTexture);for(const parameter of [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_3D,parameter,gl.LINEAR);for(const parameter of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T,gl.TEXTURE_WRAP_R])gl.texParameteri(gl.TEXTURE_3D,parameter,gl.CLAMP_TO_EDGE);gl.texImage3D(gl.TEXTURE_3D,0,gl.RGBA8,resolution,resolution,resolution,0,gl.RGBA,gl.UNSIGNED_BYTE,material);
+  webgpuRenderer?.setVolume(sdf,material,resolution);threeRenderer?.setVolume?.(sdf,material,resolution);state.meshVolumeReady=true;document.getElementById('fusionLabel').textContent=`统一 SDF + ${sources.length} 个源材质场`;
+}
+let volumeRebuildTimer;function scheduleVolumeRebuild(){clearTimeout(volumeRebuildTimer);volumeRebuildTimer=setTimeout(rebuildImportedVolume,120);}
 if(meshGl){
   const meshCompile=(type,source)=>{const shader=meshGl.createShader(type);meshGl.shaderSource(shader,source);meshGl.compileShader(shader);if(!meshGl.getShaderParameter(shader,meshGl.COMPILE_STATUS))throw new Error(meshGl.getShaderInfoLog(shader));return shader;};
   meshProgram=meshGl.createProgram();meshGl.attachShader(meshProgram,meshCompile(meshGl.VERTEX_SHADER,meshVertex));meshGl.attachShader(meshProgram,meshCompile(meshGl.FRAGMENT_SHADER,meshFragment));meshGl.linkProgram(meshProgram);
@@ -257,8 +274,8 @@ function renderImportedObjectList(selected=state.selected){
   bindSceneItems();
   if(state.objects[selected])selectObject(selected);else if(state.imported.length)selectObject('mesh-0');
 }
-['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)){state.objects[state.selected].position[index]=value;state.preset=3;document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}));
-document.getElementById('objectScale').addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)&&value>0){state.objects[state.selected].scale=value;state.preset=3;document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}});
+['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)){state.objects[state.selected].position[index]=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}));
+document.getElementById('objectScale').addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)&&value>0){state.objects[state.selected].scale=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}});
 document.getElementById('resetObject').addEventListener('click',()=>{const positions={sphere:[-.55,0,0],box:[.5,.08,0],mesh:[0,0,0]},object=state.objects[state.selected],fallback=positions[state.selected]||[0,0,0],bounds=object?.bounds;state.objects[state.selected]={...object,position:[...fallback],scale:1,...(bounds?{bounds}: {})};state.preset=3;selectObject(state.selected);});
 document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>{state.mode=button.dataset.mode;document.querySelectorAll('[data-mode]').forEach(item=>item.classList.toggle('active',item===button));canvas.style.cursor=state.mode==='move'?'move':'grab';}));
 function setFusionMode(enabled){state.meshFusion=enabled;viewport.classList.toggle('fusion-active',enabled);}
@@ -267,7 +284,7 @@ bindSceneItems();
 async function importFiles(fileList){
   const files=Array.from(fileList).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));if(!files.length)return;
   const glbs=files.filter(file=>file.name.toLowerCase().endsWith('.glb'));
-  if(glbs.length){await importGlbs(glbs.slice(0,5));if(glbs.length>5)showToast('最多支持 5 个 GLB，已忽略多出的文件',true);return;}
+  if(glbs.length){await importGlbs(glbs.slice(0,5));const importedVolume=state.imported.find(item=>item.file===glbs[0]);if(importedVolume&&meshMaterialData)importedVolume.materialData=meshMaterialData;rebuildImportedVolume();if(glbs.length>5)showToast('最多支持 5 个 GLB，已忽略多出的文件',true);return;}
   const unsupported=files.find(file=>['abc','vdb'].includes(file.name.split('.').pop().toLowerCase()));if(unsupported){showToast(`${unsupported.name} 需要服务端转换；请从 Blender 导出 OBJ 序列`,true);return;}
   if(files.some(file=>!['obj','stl'].includes(file.name.split('.').pop().toLowerCase()))){showToast('请选择 OBJ、STL，或同格式的帧序列',true);return;}
   try{showToast(`正在解析 ${files.length} 个网格帧...`);const raw=[];for(const file of files){const ext=file.name.split('.').pop().toLowerCase();raw.push(ext==='obj'?parseObj(await file.text()):parseStl(await file.arrayBuffer()));}const normalized=normalizeMeshSequence(raw);
@@ -301,7 +318,7 @@ async function importGlbs(files){
       const resolveCacheUrl=name=>name&&name.startsWith('/')?name:manifest.frames[0].replace(/[^/]+$/,name||'mesh-material.bin');
       const size=manifest.sdf.resolution,sdfResponse=await fetch(resolveCacheUrl(manifest.sdf.url));
       if(!sdfResponse.ok)throw new Error('无法读取真实网格距离场');
-      const values=new Float32Array(await sdfResponse.arrayBuffer());if(values.length!==size*size*size)throw new Error('距离场体素数量不正确');meshSdfData=values;
+      const values=new Float32Array(await sdfResponse.arrayBuffer());if(values.length!==size*size*size)throw new Error('距离场体素数量不正确');meshSdfData=values;const volumeTarget=state.imported.find(item=>item.file===file);if(volumeTarget){volumeTarget.sdfData=values;volumeTarget.sdfSize=size;volumeTarget.sourceBounds=[...manifest.sdf.bounds];rebuildImportedVolume();}
       meshSdfTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_3D,meshSdfTexture);const filter=gl.getExtension('OES_texture_float_linear')?gl.LINEAR:gl.NEAREST;gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MIN_FILTER,filter);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MAG_FILTER,filter);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_R,gl.CLAMP_TO_EDGE);gl.texImage3D(gl.TEXTURE_3D,0,gl.R32F,size,size,size,0,gl.RED,gl.FLOAT,values);state.objects.mesh.bounds=manifest.sdf.bounds;
       document.getElementById('fusionLabel').textContent='真实网格 SDF 融合';showToast('真实网格距离场已启用');
       try{const materialResponse=await fetch(resolveCacheUrl(manifest.sdf.materialUrl));if(!materialResponse.ok)throw new Error();const materials=new Uint8Array(await materialResponse.arrayBuffer());if(materials.length!==size*size*size*4)throw new Error();meshMaterialData=materials;meshMaterialTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_3D,meshMaterialTexture);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_R,gl.CLAMP_TO_EDGE);gl.texImage3D(gl.TEXTURE_3D,0,gl.RGBA8,size,size,size,0,gl.RGBA,gl.UNSIGNED_BYTE,materials);document.getElementById('fusionLabel').textContent='真实 SDF + 烘焙材质场';}catch{meshMaterialData=new Uint8Array(size*size*size*4);for(let i=0;i<meshMaterialData.length;i+=4){meshMaterialData[i]=143;meshMaterialData[i+1]=158;meshMaterialData[i+2]=173;meshMaterialData[i+3]=72;}showToast('真实 SDF 已启用，材质场暂时使用金属银',true);}if(webgpuRenderer)webgpuRenderer.setVolume(meshSdfData,meshMaterialData,size);threeRenderer?.setVolume?.(meshSdfData,meshMaterialData,size);state.meshVolumeReady=true;fusion.checked=true;fusion.disabled=false;setFusionMode(true);
