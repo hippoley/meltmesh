@@ -112,6 +112,10 @@ class FieldStudioHandler(SimpleHTTPRequestHandler):
                 manifest["sdf"]["materialUrl"] = (
                     f"/cache/{job_id}/{manifest['sdf']['materialUrl']}"
                 )
+                if manifest["sdf"].get("materialFeaturesUrl"):
+                    manifest["sdf"]["materialFeaturesUrl"] = (
+                        f"/cache/{job_id}/{manifest['sdf']['materialFeaturesUrl']}"
+                    )
             self.send_json(200, manifest)
         except subprocess.TimeoutExpired:
             shutil.rmtree(job_dir, ignore_errors=True)

@@ -57,14 +57,25 @@ def generate_sdf(scene, output, resolution=64):
                 polygons.append(indices)
                 polygon = mesh.polygons[triangle.polygon_index]
                 material = obj.material_slots[polygon.material_index].material if polygon.material_index < len(obj.material_slots) else None
-                color, roughness, image_data = [0.75, 0.75, 0.75], 0.45, None
+                color, roughness, metallic, alpha, emission, transmission, image_data = [0.75, 0.75, 0.75], 0.45, 0.0, 1.0, 0.0, 0.0, None
                 if material:
                     color = list(material.diffuse_color[:3])
+                    alpha = float(material.diffuse_color[3])
                     if material.use_nodes:
                         principled = next((node for node in material.node_tree.nodes if node.type == "BSDF_PRINCIPLED"), None)
                         if principled:
                             color = list(principled.inputs["Base Color"].default_value[:3])
                             roughness = float(principled.inputs["Roughness"].default_value)
+                            metallic = float(principled.inputs["Metallic"].default_value)
+                            alpha = float(principled.inputs["Alpha"].default_value)
+                            emission_input = principled.inputs.get("Emission Color") or principled.inputs.get("Emission")
+                            emission_strength = principled.inputs.get("Emission Strength")
+                            if emission_input:
+                                emission_color = emission_input.default_value[:3]
+                                emission = max(emission_color) * (float(emission_strength.default_value) if emission_strength else 1.0)
+                            transmission_input = principled.inputs.get("Transmission Weight") or principled.inputs.get("Transmission")
+                            if transmission_input:
+                                transmission = float(transmission_input.default_value)
                             base_input = principled.inputs["Base Color"]
                             texture = base_input.links[0].from_node if base_input.is_linked else None
                             if texture and texture.type == "TEX_IMAGE" and texture.image:
@@ -74,9 +85,10 @@ def generate_sdf(scene, output, resolution=64):
                                 image_data = image_cache[key]
                     else:
                         roughness = float(material.roughness)
+                        metallic = float(material.metallic)
                 uvs = [tuple(uv_layer[loop].uv) for loop in triangle.loops] if uv_layer else None
                 world_triangle = [world_vertices[index] for index in triangle.vertices]
-                triangle_materials.append((color, roughness, image_data, uvs, world_triangle, is_closed))
+                triangle_materials.append((color, roughness, metallic, alpha, emission, transmission, image_data, uvs, world_triangle, is_closed))
         finally:
             evaluated.to_mesh_clear()
     if not vertices or not polygons:
@@ -89,7 +101,7 @@ def generate_sdf(scene, output, resolution=64):
     max_dimension = max(maxs[axis] - mins[axis] for axis in range(3))
     normalize_scale = 2.6 / max(max_dimension, 1e-6)
     half = [max((maxs[axis] - mins[axis]) * 0.58, max_dimension * 0.04) for axis in range(3)]
-    values, materials = array("f"), bytearray()
+    values, materials, material_features = array("f"), bytearray(), bytearray()
     for z in range(resolution):
         for y in range(resolution):
             for x in range(resolution):
@@ -99,8 +111,9 @@ def generate_sdf(scene, output, resolution=64):
                 if nearest is None:
                     values.append(max_dimension * normalize_scale)
                     materials.extend((191, 191, 191, 115))
+                    material_features.extend((0, 255, 0, 0))
                 else:
-                    color, roughness, image_data, uvs, world_triangle, is_closed = triangle_materials[triangle_index]
+                    color, roughness, metallic, alpha, emission, transmission, image_data, uvs, world_triangle, is_closed = triangle_materials[triangle_index]
                     if is_closed:
                         signed_distance = distance * (-1.0 if (point - nearest).dot(normal) < 0 else 1.0)
                     else:
@@ -123,11 +136,14 @@ def generate_sdf(scene, output, resolution=64):
                             pixel = (min(int(v * height), height - 1) * width + min(int(u * width), width - 1)) * 4
                             sampled = [color[channel] * pixels[pixel + channel] for channel in range(3)]
                     materials.extend(max(0, min(255, round(value * 255))) for value in (*sampled, roughness))
+                    material_features.extend(max(0, min(255, round(value * 255))) for value in (metallic, alpha, min(emission, 1.0), transmission))
     (output / "mesh-sdf.bin").write_bytes(values.tobytes())
     (output / "mesh-material.bin").write_bytes(materials)
+    (output / "mesh-material-features.bin").write_bytes(material_features)
     return {
         "url": "mesh-sdf.bin",
         "materialUrl": "mesh-material.bin",
+        "materialFeaturesUrl": "mesh-material-features.bin",
         "resolution": resolution,
         "bounds": [round(value * normalize_scale, 6) for value in half],
     }

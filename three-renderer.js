@@ -123,6 +123,7 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
 
   const dummySdf = volumeTexture(new Float32Array([1]), 1);
   const dummyMaterial = volumeTexture(new Uint8Array([143, 158, 173, 72]), 1, true);
+  const dummyFeatures = volumeTexture(new Uint8Array([0, 255, 0, 0]), 1, true);
   const source = window.fieldStudioShaders;
   if (!source) throw new Error('SDF shader source is not ready');
   const sdfFragment = source.fragmentSource
@@ -133,7 +134,7 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
   const sdfUniforms = {
     uResolution:{value:new THREE.Vector2(1,1)},uViewProjection:{value:viewProjection},uSceneColor:{value:sceneTarget.texture},uSceneDepth:{value:sceneTarget.depthTexture},uTime:{value:0},uBlend:{value:.28},uSpacing:{value:1.05},uRadius:{value:1},uBoxSize:{value:.78},uRoughness:{value:.06},uSpecular:{value:.96},uTransmission:{value:.98},uIor:{value:1.52},uDissolveMemory:{value:0},uConsumeScale:{value:.86},uBooleanSmooth:{value:.24},uFrontNoise:{value:.14},
     uColor:{value:new THREE.Vector3(.74,.91,.97)},uCamera:{value:new THREE.Vector3()},uSpherePos:{value:new THREE.Vector3()},uBoxPos:{value:new THREE.Vector3()},uMeshPos:{value:new THREE.Vector3()},uMeshBounds:{value:new THREE.Vector3(1,1,1)},uPhaseSeeds:{value:Array.from({length:8},()=>new THREE.Vector4())},uPhaseNormals:{value:Array.from({length:8},()=>new THREE.Vector4(0,1,0,0))},
-    uSphereScale:{value:1},uBoxScale:{value:1},uMeshScale:{value:1},uHasMeshSdf:{value:0},uHasMeshMaterial:{value:0},uMeshSdf:{value:dummySdf},uMeshMaterial:{value:dummyMaterial},uPreset:{value:0}
+    uSphereScale:{value:1},uBoxScale:{value:1},uMeshScale:{value:1},uHasMeshSdf:{value:0},uHasMeshMaterial:{value:0},uHasMeshFeatures:{value:0},uMeshSdf:{value:dummySdf},uMeshMaterial:{value:dummyMaterial},uMeshFeatures:{value:dummyFeatures},uPreset:{value:0}
   };
   const sdfMaterial = new THREE.RawShaderMaterial({
     glslVersion:THREE.GLSL3,
@@ -151,7 +152,7 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
   const loader = new GLTFLoader();
   const clock = new THREE.Clock();
   const interactionShaders = [];
-  let mixers = [], models = [], ready = false, sdfVolume = dummySdf, materialVolume = dummyMaterial, sdfCpuData = null, sdfCpuSize = 1;
+  let mixers = [], models = [], ready = false, sdfVolume = dummySdf, materialVolume = dummyMaterial, featuresVolume = dummyFeatures, sdfCpuData = null, sdfCpuSize = 1;
   let dissolveMemory = 0, nextPhaseSeed = 0, lastSeedPosition = null, lastMeshTransform = null;
   const phaseSeeds = Array.from({length:8},()=>({position:[0,0,0],normal:[0,1,0],strength:0}));
 
@@ -344,16 +345,22 @@ if (uInteractionEnabled > 0.5) {
     ready = true;
     return { count: models.length, animations: mixers.length };
   }
-  function setVolume(sdfData, materialData, size) {
+  function setVolume(sdfData, materialData, size, featuresData = null) {
     if (sdfVolume !== dummySdf) sdfVolume.dispose();
     if (materialVolume !== dummyMaterial) materialVolume.dispose();
+    if (featuresVolume !== dummyFeatures) featuresVolume.dispose();
     sdfVolume = volumeTexture(sdfData, size);if(renderer.extensions.has('OES_texture_float_linear')){sdfVolume.minFilter=THREE.LinearFilter;sdfVolume.magFilter=THREE.LinearFilter;sdfVolume.needsUpdate=true;}
     sdfCpuData = sdfData; sdfCpuSize = size;
     materialVolume = volumeTexture(materialData, size, true);
+    const fallbackFeatures = featuresData || new Uint8Array(size * size * size * 4);
+    if (!featuresData) for (let index = 1; index < fallbackFeatures.length; index += 4) fallbackFeatures[index] = 255;
+    featuresVolume = volumeTexture(fallbackFeatures, size, true);
     sdfUniforms.uMeshSdf.value = sdfVolume;
     sdfUniforms.uMeshMaterial.value = materialVolume;
+    sdfUniforms.uMeshFeatures.value = featuresVolume;
     sdfUniforms.uHasMeshSdf.value = 1;
     sdfUniforms.uHasMeshMaterial.value = materialData ? 1 : 0;
+    sdfUniforms.uHasMeshFeatures.value = featuresData ? 1 : 0;
     dissolveMemory=0;lastSeedPosition=null;lastMeshTransform=null;for(const seed of phaseSeeds){seed.position=[0,0,0];seed.normal=[0,1,0];seed.strength=0;}
   }
   function sampleMeshDistance(worldPosition, state) {
