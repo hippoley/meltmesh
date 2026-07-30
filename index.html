@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#111310">
   <title>MeltMesh - Reactive SDF Studio</title>
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <main class="app-shell">
@@ -86,15 +86,15 @@
           <button class="preset" data-preset="orbit">环绕</button>
         </div>
         <div class="control-list">
-          <label class="control"><span><b>融合强度</b><output for="blend">0.28</output></span><input id="blend" type="range" min="0.05" max="1.2" value="0.28" step="0.01"></label>
+          <label class="control"><span><b>融合强度</b><output for="blend">0.34</output></span><input id="blend" type="range" min="0.05" max="1.2" value="0.34" step="0.01"></label>
           <div class="solver-label"><span>布尔结算器</span><code>A → B</code></div>
-          <label class="control"><span><b>接触阈值</b><output for="contactThreshold">0.32</output></span><input id="contactThreshold" type="range" min="0.05" max="0.80" value="0.32" step="0.01"></label>
-          <label class="control"><span><b>侵蚀半径</b><output for="consumeScale">0.86</output></span><input id="consumeScale" type="range" min="0.10" max="1.60" value="0.86" step="0.01"></label>
-          <label class="control"><span><b>布尔平滑</b><output for="booleanSmooth">0.24</output></span><input id="booleanSmooth" type="range" min="0.02" max="0.75" value="0.24" step="0.01"></label>
-          <label class="control"><span><b>前沿扰动</b><output for="frontNoise">0.14</output></span><input id="frontNoise" type="range" min="0.00" max="0.40" value="0.14" step="0.01"></label>
-          <label class="control"><span><b>溶解速率</b><output for="dissolveRate">0.55</output></span><input id="dissolveRate" type="range" min="0.05" max="2.00" value="0.55" step="0.05"></label>
-          <label class="control"><span><b>恢复速率</b><output for="recoveryRate">0.04</output></span><input id="recoveryRate" type="range" min="0.00" max="0.50" value="0.04" step="0.01"></label>
-          <label class="control"><span><b>形体间距</b><output for="spacing">1.05</output></span><input id="spacing" type="range" min="0.3" max="2.2" value="1.05" step="0.01"></label>
+          <label class="control"><span><b>接触阈值</b><output for="contactThreshold">0.48</output></span><input id="contactThreshold" type="range" min="0.05" max="0.80" value="0.48" step="0.01"></label>
+          <label class="control"><span><b>侵蚀半径</b><output for="consumeScale">1.18</output></span><input id="consumeScale" type="range" min="0.10" max="1.60" value="1.18" step="0.01"></label>
+          <label class="control"><span><b>布尔平滑</b><output for="booleanSmooth">0.34</output></span><input id="booleanSmooth" type="range" min="0.02" max="0.75" value="0.34" step="0.01"></label>
+          <label class="control"><span><b>前沿扰动</b><output for="frontNoise">0.28</output></span><input id="frontNoise" type="range" min="0.00" max="0.40" value="0.28" step="0.01"></label>
+          <label class="control"><span><b>溶解速率</b><output for="dissolveRate">0.95</output></span><input id="dissolveRate" type="range" min="0.05" max="2.00" value="0.95" step="0.05"></label>
+          <label class="control"><span><b>恢复速率</b><output for="recoveryRate">0.03</output></span><input id="recoveryRate" type="range" min="0.00" max="0.50" value="0.025" step="0.01"></label>
+          <label class="control"><span><b>形体间距</b><output for="spacing">1.00</output></span><input id="spacing" type="range" min="0.3" max="2.2" value="1.00" step="0.01"></label>
           <label class="control"><span><b>球体尺寸</b><output for="radius">1.00</output></span><input id="radius" type="range" min="0.45" max="1.45" value="1" step="0.01"></label>
           <label class="control"><span><b>圆角尺寸</b><output for="boxSize">0.78</output></span><input id="boxSize" type="range" min="0.4" max="1.25" value="0.78" step="0.01"></label>
         </div>
@@ -113,10 +113,10 @@
           <button class="swatch" data-color="1.0,0.88,0.06" style="--swatch:#ffe00f" aria-label="柠檬黄"></button>
         </div>
         <div class="control-list compact">
-          <label class="control"><span><b>粗糙度</b><output for="roughness">0.06</output></span><input id="roughness" type="range" min="0.02" max="0.75" value="0.06" step="0.01"></label>
-          <label class="control"><span><b>玻璃反射</b><output for="specular">0.96</output></span><input id="specular" type="range" min="0" max="1" value="0.96" step="0.01"></label>
-          <label class="control"><span><b>透射率</b><output for="transmission">0.98</output></span><input id="transmission" type="range" min="0.15" max="1" value="0.98" step="0.01"></label>
-          <label class="control"><span><b>折射率 IOR</b><output for="ior">1.52</output></span><input id="ior" type="range" min="1" max="2.2" value="1.52" step="0.01"></label>
+          <label class="control"><span><b>粗糙度</b><output for="roughness">0.03</output></span><input id="roughness" type="range" min="0.02" max="0.75" value="0.025" step="0.01"></label>
+          <label class="control"><span><b>玻璃反射</b><output for="specular">1.18</output></span><input id="specular" type="range" min="0" max="1.4" value="1.18" step="0.01"></label>
+          <label class="control"><span><b>透射率</b><output for="transmission">1.00</output></span><input id="transmission" type="range" min="0.15" max="1" value="1.00" step="0.01"></label>
+          <label class="control"><span><b>折射率 IOR</b><output for="ior">1.57</output></span><input id="ior" type="range" min="1" max="2.2" value="1.57" step="0.01"></label>
         </div>
         <div class="equation"><span>场函数</span><code>smin(A \\ C(B), B)</code></div>
       </aside>
@@ -124,7 +124,7 @@
   </main>
   <script src="webgpu-renderer.js?v=12"></script>
   <script src="domain-router.js?v=3"></script>
-  <script type="module" src="three-renderer.js?v=34"></script>
-  <script src="app.js?v=51"></script>
+  <script type="module" src="three-renderer.js?v=35"></script>
+  <script src="app.js?v=52"></script>
 </body>
 </html>

@@ -226,6 +226,16 @@ float refractiveContactSpectrum(vec3 p) {
   }
   return clamp(0.5 + field / 10.0, 0.0, 1.0);
 }
+vec3 contactReflectionPalette(vec3 p, float strength, float impedance) {
+  float spectrum = refractiveContactSpectrum(p);
+  float vein = smoothstep(0.55, 0.86, abs(interactionNoise(p * 19.0 + vec3(0.0, uContactTime * 0.12, 0.0)) - 0.5) * 2.0);
+  vec3 cyan = vec3(0.02, 0.95, 0.82);
+  vec3 amber = vec3(1.0, 0.45, 0.06);
+  vec3 violet = vec3(0.50, 0.32, 1.0);
+  vec3 copied = mix(cyan, amber, spectrum);
+  copied = mix(copied, violet, vein * (0.28 + impedance * 0.34));
+  return copied * strength * (0.55 + impedance * 1.25);
+}
 void main() {`)
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 float interactionEdge = 0.0;
@@ -245,25 +255,26 @@ if (uInteractionEnabled > 0.5) {
   float materialImpedance = clamp(abs(uSourceMetalness - uSourceRoughness) * 0.72 + uSourceTextureSignal * 0.36, 0.0, 1.0);
   interactionEdge = max(membrane, importedKernel * (1.0 - importedKernel) * 2.4) * (0.55 + dissolveMask * 0.45) * (0.8 + uDomainPhase * 1.9) * (0.82 + materialImpedance * 0.55);
   interactionWet = clamp(penetration * (0.62 + dissolveMask * 0.38) + interactionEdge * 0.28, 0.0, 1.0);
-  interactionWet *= 0.72 + uDomainOptical * 1.45 + mirrored * 0.35 + materialImpedance * 0.28;
+  interactionWet *= 0.86 + uDomainOptical * 1.75 + mirrored * 0.48 + materialImpedance * 0.42;
 }`)
         .replace('#include <output_fragment>', `
 if (uInteractionEnabled > 0.5) {
   float contactSpectrum = refractiveContactSpectrum(vInteractionWorld);
   float sourceGloss = 1.0 - clamp(uSourceRoughness, 0.0, 1.0);
   float materialMode = clamp(uSourceMetalness * 0.62 + uSourceTextureSignal * 0.22 + contactSpectrum * 0.32, 0.0, 1.0);
-  vec3 materialSpectrum = mix(vec3(0.06, 0.92, 0.72), vec3(1.0, 0.55, 0.10), materialMode);
-  vec3 reflectedMaterial = mix(uReactionColor, materialSpectrum, 0.38 + uDomainOptical * 0.44);
+  float materialImpedance = clamp(abs(uSourceMetalness - uSourceRoughness) * 0.72 + uSourceTextureSignal * 0.36, 0.0, 1.0);
+  vec3 materialSpectrum = contactReflectionPalette(vInteractionWorld, 1.0, materialImpedance);
+  vec3 reflectedMaterial = mix(uReactionColor, materialSpectrum, 0.48 + uDomainOptical * 0.46);
   vec3 copiedMaterial = mix(diffuseColor.rgb, reflectedMaterial, 0.42 + uDomainOptical * 0.32 + sourceGloss * 0.16);
-  diffuseColor.rgb = mix(diffuseColor.rgb, copiedMaterial, clamp(interactionWet * (0.36 + uDomainPhase * 0.32), 0.0, 0.86));
-  outgoingLight = mix(outgoingLight, outgoingLight * (0.52 + uDomainImplicit * 0.22) + copiedMaterial * (0.18 + uDomainOptical * 0.24), clamp(interactionWet * (0.58 + uDomainPhase * 0.32), 0.0, 0.92));
-  outgoingLight += materialSpectrum * interactionEdge * (1.1 + uDomainOptical * 1.8 + sourceGloss * 1.2);
-  outgoingLight = mix(outgoingLight, mix(vec3(0.05,0.95,0.78), vec3(1.0,0.28,0.08), materialMode), clamp(uContactDebug * interactionWet * 0.68, 0.0, 0.78));
+  diffuseColor.rgb = mix(diffuseColor.rgb, copiedMaterial, clamp(interactionWet * (0.48 + uDomainPhase * 0.34), 0.0, 0.94));
+  outgoingLight = mix(outgoingLight, outgoingLight * (0.46 + uDomainImplicit * 0.18) + copiedMaterial * (0.24 + uDomainOptical * 0.32), clamp(interactionWet * (0.68 + uDomainPhase * 0.38), 0.0, 0.96));
+  outgoingLight += materialSpectrum * interactionEdge * (1.45 + uDomainOptical * 2.2 + sourceGloss * 1.35);
+  outgoingLight = mix(outgoingLight, materialSpectrum, clamp(uContactDebug * interactionWet * 0.52, 0.0, 0.64));
 }
 #include <output_fragment>`);
       interactionShaders.push(shader);
     };
-    material.customProgramCacheKey = () => 'refractive-contact-material-v7';
+    material.customProgramCacheKey = () => 'refractive-contact-material-v8';
   }
 
   function summarizeMaterials(model) {
