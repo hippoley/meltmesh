@@ -62,6 +62,13 @@
           <label class="scale-field"><span>缩放</span><input id="objectScale" type="number" min="0.1" max="4" step="0.05" value="1"></label>
         </div>
         <label class="fusion-toggle"><input id="meshFusion" type="checkbox" checked disabled><span id="fusionLabel">等待导入真实 SDF</span><i></i></label>
+        <section class="domain-router" aria-label="数学域路由">
+          <header><span>数学域路由</span><strong id="domainPrimary">隐式几何</strong></header>
+          <div class="domain-row"><span>隐式几何</span><i id="domain-implicitGeometry"></i><output id="domain-implicitGeometry-value">--</output></div>
+          <div class="domain-row"><span>相场演化</span><i id="domain-phaseField"></i><output id="domain-phaseField-value">--</output></div>
+          <div class="domain-row"><span>折射材质</span><i id="domain-optical"></i><output id="domain-optical-value">--</output></div>
+          <p id="domainSignature">等待交互状态</p>
+        </section>
         <div class="panel-heading"><span>几何参数</span><button id="randomize" class="text-button">随机</button></div>
         <div class="preset-group" role="group" aria-label="造型预设">
           <button class="preset active" data-preset="blend">融合</button>
@@ -106,7 +113,8 @@
     </section>
   </main>
   <script src="webgpu-renderer.js?v=12"></script>
+  <script src="domain-router.js?v=1"></script>
   <script type="module" src="three-renderer.js?v=30"></script>
-  <script src="app.js?v=47"></script>
+  <script src="app.js?v=48"></script>
 </body>
 </html>

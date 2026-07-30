@@ -2,239 +2,272 @@
 
 # MeltMesh
 
-### Make any GLB melt, merge, and react in your browser.
+**A browser sandbox that infers the mathematical model from the interaction.**
 
-Real-time directional SDF booleans, surface-bound phase fields, and original PBR materials in one depth-aware renderer.
+Import real GLB assets, move them into contact, and render geometry dissolution,
+material transfer, refraction, and contact memory in one depth-aware scene.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-7cff36.svg)](LICENSE)
-![WebGL2](https://img.shields.io/badge/renderer-WebGL2-ff6b35.svg)
-![WebGPU Experimental](https://img.shields.io/badge/WebGPU-experimental-f4d35e.svg)
-![Three.js r147](https://img.shields.io/badge/Three.js-r147-ffffff.svg)
-![No build step](https://img.shields.io/badge/build-none-54c6eb.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-d7ff47.svg)](LICENSE)
+![Three.js](https://img.shields.io/badge/renderer-Three.js-white.svg)
+![WebGL2](https://img.shields.io/badge/fallback-WebGL2-54c6eb.svg)
+![WebGPU](https://img.shields.io/badge/WebGPU-experimental-f4d35e.svg)
+![Build](https://img.shields.io/badge/build-none-ff6b35.svg)
 
-[Quick start](#quick-start) · [How it works](#how-it-works) · [Detailed model](MODEL_SPECIFICATION.md) · [Refraction model](REFRACTION_MODEL.md) · [Roadmap](#roadmap) · [中文](#中文简介)
+[Quick Start](#quick-start) · [Mathematical Router](#mathematical-domain-router) ·
+[Architecture](#architecture) · [Limits](#current-limits) · [中文](#中文简介)
 
 </div>
 
-MeltMesh is an open-source browser experiment for **reactive 3D modeling**. Import a GLB, move analytic shapes into it, and watch the old geometry dissolve into the imported model through a directional Boolean and a stateful contact field.
+MeltMesh explores a specific question:
 
-This is not another triangle-mesh Boolean demo. The imported mesh, analytic SDF primitives, contact history, baked material volume, and original Three.js PBR scene are evaluated as parts of one interaction model.
+> Can a modeling tool detect what kind of mathematical problem an interaction
+> has become, then switch its solver emphasis while the user is still moving
+> the objects?
 
-Its research direction is the **Refractive Contact Field**: when objects touch, geometry and material traits do not merely blend. They reflect across the contact membrane, refract through material impedance, replicate with controlled mutation, and dissolve along a surface phase field. Read the [concept and equations](REFRACTION_MODEL.md).
+The current prototype combines imported mesh volumes, analytic signed distance
+fields, directional Boolean contact, surface phase memory, and refractive
+material sampling. It supports up to five imported GLB assets and keeps each
+asset independently selectable and transformable.
 
-For the full solver specification—including nondimensional parameters, reaction-diffusion recipes, stability constraints, GPU data structures, and calibration targets—read [MODEL_SPECIFICATION.md](MODEL_SPECIFICATION.md).
+The visual reference is the continuous, soft contact language popularized by
+tools such as Womp. The implementation is independent and does not use Womp
+source code or proprietary assets.
 
-> **Status:** research prototype. The interaction model works, but thin meshes are still limited by the current `64³` imported SDF. See [Known limits](#known-limits).
+## What Works
 
-## Why MeltMesh?
+- Import up to five GLB/GLTF assets without replacing earlier imports.
+- Preserve original Three.js PBR meshes, textures, animation clips, and material
+  response in the rasterized scene.
+- Convert imported assets into world-space SDF and material volumes.
+- Combine analytic primitives and imported volumes with smooth directional
+  Boolean operations.
+- Record contact seeds and evolve a persistent, surface-local dissolution field.
+- Mix material samples from the source objects inside the generated contact
+  surface instead of assigning an empty material.
+- Route each frame between implicit geometry, phase-field evolution, and optical
+  material response using the live interaction state.
+- Render imported PBR geometry and generated SDF surfaces through one depth
+  pipeline.
+- Use Three.js as the primary renderer, with WebGL2 fallback and an experimental
+  WebGPU path.
 
-Most real-time SDF demos stop at symmetric smooth union:
+## Mathematical Domain Router
 
-```text
-smoothMin(shapeA, shapeB)
+The router turns raw interaction state into a compact problem signature:
+
+\[
+z_t =
+\left[
+p_t,\ d_t,\ v_t,\ \tau_t,\ c_t,\ n_t
+\right]
+\]
+
+where:
+
+- \(p_t\): proximity between objects
+- \(d_t\): estimated penetration
+- \(v_t\): maximum relative motion
+- \(\tau_t\): accumulated contact duration
+- \(c_t\): material contrast
+- \(n_t\): active object count
+
+Three expert scores are evaluated:
+
+\[
+s_t =
+\begin{bmatrix}
+s_{\mathrm{SDF}}(z_t) \\
+s_{\mathrm{phase}}(z_t) \\
+s_{\mathrm{optical}}(z_t)
+\end{bmatrix},
+\qquad
+\pi_t = \operatorname{softmax}(s_t)
+\]
+
+The weights \(\pi_t\) continuously modify the effective solver:
+
+\[
+\theta_t =
+\pi_{\mathrm{SDF}}\theta_{\mathrm{geometry}}
++ \pi_{\mathrm{phase}}\theta_{\mathrm{dissolution}}
++ \pi_{\mathrm{optical}}\theta_{\mathrm{material}}
+\]
+
+In the current implementation:
+
+- implicit geometry increases smooth-union influence near contact;
+- phase-field weight expands the consumption front and its local variation;
+- optical weight increases transmission and refractive ownership at material
+  boundaries.
+
+The inspector displays the three weights and the current interaction signature,
+so the routing decision is observable while objects move.
+
+This router is deliberately a deterministic heuristic, not a trained AI model.
+Its interface is designed so that a learned classifier or policy can replace
+the score functions later without changing the render pipeline.
+
+## Contact Model
+
+For primitive field \(A\) and imported field \(B\), the directional contact
+surface starts from:
+
+\[
+C(A,B) =
+\operatorname{smin}_{k}
+\left(
+\max(A,-B_{\mathrm{front}}),
+B
+\right)
+\]
+
+The imported front is modified by persistent contact memory \(\phi\):
+
+\[
+B_{\mathrm{front}}(x,t)
+= B(x)
+- r_c \phi(x,t)
++ \eta(x)\,a_n\phi(x,t)
+\]
+
+The material at a generated point is not a fixed color. It is reconstructed
+from source material fields:
+
+\[
+M(x) =
+\frac{\sum_i w_i(x)M_i(x)}
+{\sum_i w_i(x)+\varepsilon}
+\]
+
+where the weights depend on distance, contact ownership, phase memory, and the
+router's optical-domain weight. The result is a spatially varying contact
+material rather than a uniform overlay.
+
+More detail is available in:
+
+- [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md)
+- [MODEL_SPECIFICATION.md](MODEL_SPECIFICATION.md)
+- [REFRACTION_MODEL.md](REFRACTION_MODEL.md)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    I["Mouse + object state"] --> Z["Interaction signature z(t)"]
+    Z --> R["Mathematical domain router"]
+    R --> G["Implicit geometry weight"]
+    R --> P["Phase-field weight"]
+    R --> O["Optical material weight"]
+    A["Analytic SDF primitives"] --> V["Unified world-space field"]
+    B["Imported GLB"] --> C["SDF + material volume"]
+    C --> V
+    G --> V
+    P --> V
+    O --> M["Contact material reconstruction"]
+    V --> S["Sphere tracing / smooth Boolean"]
+    M --> S
+    B --> T["Original Three.js PBR scene"]
+    S --> D["Unified depth composition"]
+    T --> D
 ```
 
-That makes two shapes look glued together, but it cannot express **who consumes whom**, where the contact happened, or which material owns the new surface.
+## Quick Start
 
-MeltMesh models a directional process:
-
-```text
-existing geometry A  ──dissolves into──▶  imported model B
-```
-
-- **Directional absorption** instead of symmetric blobs.
-- **Contact memory** instead of an effect that resets every frame.
-- **Surface-bound phase seeds** instead of a global dissolve slider.
-- **Material ownership** instead of painting one color over the result.
-- **Unified depth** instead of stacking unrelated WebGL canvases.
-
-## Features
-
-- Import animated GLB scenes and retain original Three.js PBR materials.
-- Bake imported meshes into an SDF and a sampled material volume with Blender.
-- Move and scale spheres, rounded boxes, and imported objects with the mouse.
-- Erode existing primitives into imported geometry with an `A -> B` Boolean solver.
-- Accumulate multiple independent dissolve traces at measured contact positions.
-- Project contact samples onto the imported surface using the SDF gradient.
-- Spread dissolution along the surface with anisotropic phase fields.
-- Preserve contact history, or let it recover at a tunable rate.
-- Render the original GLB and generated SDF surfaces through one depth pipeline.
-- Use an experimental WebGPU path with a WebGL2 fallback.
-- Tune contact, erosion, smoothing, noise, dissolve rate, and recovery live.
-
-## Quick start
-
-### Requirements
+Requirements:
 
 - Python 3.10+
-- Blender 4.x or 5.x
-- A modern WebGL2 browser; Chromium/Chrome is recommended
-- Hardware acceleration enabled
+- Blender 4.x or newer for GLB volume conversion
+- A Chromium-based browser with hardware acceleration
 
-No npm install. No bundler. No frontend build step.
-
-### Run
+Run the local server:
 
 ```bash
-git clone <your-repository-url>
+git clone <repository-url>
 cd meltmesh
 python server.py
 ```
 
-Open [http://127.0.0.1:4173/](http://127.0.0.1:4173/).
+Open `http://127.0.0.1:4173/`.
 
-If Blender is not on `PATH`, point MeltMesh to the executable:
+Use **Import** or drag GLB files into the viewport. Select an object in the
+scene list, move it with the mouse, and bring it into contact with another
+object. The right inspector shows which mathematical domain currently controls
+the response.
 
-```powershell
-$env:FIELD_STUDIO_BLENDER = "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"
-python server.py
-```
-
-```bash
-export FIELD_STUDIO_BLENDER=/path/to/blender
-python server.py
-```
-
-Click **Import**, choose a `.glb`, wait for the SDF bake, then move a sphere or rounded box into the imported model. Keep the objects in contact to accumulate the local phase field.
-
-## How it works
-
-```mermaid
-flowchart LR
-    GLB["Imported GLB"] --> PBR["Original PBR scene"]
-    GLB --> Blender["Blender conversion"]
-    Blender --> SDF["64³ mesh SDF"]
-    Blender --> Material["Material volume"]
-    Primitive["Analytic primitives"] --> Boolean["Directional Boolean"]
-    SDF --> Contact["Contact projection"]
-    Contact --> Phase["Surface phase seeds"]
-    Phase --> Boolean
-    Material --> Ownership["Material ownership"]
-    Boolean --> Raymarch["Sphere tracing"]
-    Ownership --> Raymarch
-    PBR --> Composite["Unified color + depth"]
-    Raymarch --> Composite
-```
-
-Let `A` be the existing analytic geometry and `B` the imported mesh. MeltMesh builds a phase-controlled consuming field around `B`:
+## Project Structure
 
 ```text
-dC      = dB - erosionRadius(phase) + frontNoise
-erodedA = max(dA, -dC)
-result  = adaptiveSmoothMin(erodedA, dB)
+index.html              Workbench UI
+styles.css              Compact editor visual system
+app.js                  State, WebGL2 fallback, import and unified volumes
+three-renderer.js       Primary Three.js PBR and SDF renderer
+webgpu-renderer.js      Experimental WebGPU path
+domain-router.js        Live problem signature and solver routing
+convert_glb.py          Blender GLB to SDF/material-volume conversion
+server.py               Local server and conversion endpoint
+MATHEMATICAL_MODEL.md   Core mathematical framing
+MODEL_SPECIFICATION.md  Solver and implementation specification
+REFRACTION_MODEL.md     Contact reflection and material transfer model
 ```
 
-Each measured contact creates an anisotropic phase seed:
+## Current Limits
 
-```text
-phase = 1 - product(1 - seedContribution)
-```
+This is a research prototype, not a production solid modeler.
 
-The field spreads farther along the mesh tangent plane than along its normal, reducing accidental bleed through thin surfaces. The full derivation, equations, parameter mapping, and acceptance criteria are in [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md).
-
-## Boolean solver controls
-
-| Control | What it changes | If the result looks wrong |
-|---|---|---|
-| Blend strength | Global interaction scale | Lower it when objects inflate |
-| Contact threshold | Distance that starts phase accumulation | Lower it when objects react in mid-air |
-| Erosion radius | How deeply `B` consumes `A` | Raise it when dissolution is too weak |
-| Boolean smoothing | Width of the final connection | Lower it when the joint looks swollen |
-| Front noise | Irregularity of the erosion boundary | Raise it when the cut looks mechanical |
-| Dissolve rate | Phase growth while touching | Raise it for faster feedback |
-| Recovery rate | Phase decay after separation | Set it to `0` to retain traces |
-
-Suggested baseline:
-
-```text
-Blend strength     0.28
-Contact threshold  0.22
-Erosion radius     1.05
-Boolean smoothing  0.14
-Front noise        0.18
-Dissolve rate      0.85
-Recovery rate      0.01
-```
-
-## GLB conversion pipeline
-
-The local server invokes Blender to:
-
-1. sanitize incompatible GLB extension values;
-2. evaluate meshes and animation frames;
-3. generate an STL animation cache;
-4. sample a signed or shell distance volume;
-5. bake base color and roughness into a material volume; and
-6. write disposable artifacts to `cache/`.
-
-The upload limit is 500 MB and the conversion timeout is five minutes.
-
-## Project layout
-
-```text
-meltmesh/
-├── app.js                     WebGL2 SDF, state, and interaction
-├── three-renderer.js          Three.js PBR and unified depth composite
-├── webgpu-renderer.js         Experimental WebGPU path
-├── convert_glb.py             Blender mesh/SDF/material conversion
-├── server.py                  Local server and conversion API
-├── index.html                 Application interface
-├── styles.css                 Interface styling
-├── MATHEMATICAL_MODEL.md      Full mathematical model
-├── REFRACTION_MODEL.md        Reflection/replication research model
-├── MODEL_SPECIFICATION.md     Detailed solver and numerical specification
-├── THIRD_PARTY_NOTICES.md     Dependency attribution
-└── vendor/three/              Three.js r147 and its license
-```
-
-## Known limits
-
-- The fixed `64³` SDF cannot preserve every wire, thin wall, or sharp metal edge.
-- Eight analytic phase seeds approximate a local field; this is not a full 3D PDE grid.
-- The baked material volume currently focuses on base color and roughness.
-- The conversion endpoint currently accepts GLB only.
-- Blender conversion is synchronous, so large assets block the import workflow.
-- Automated GPU screenshot and performance regression tests are not in place yet.
+- Imported SDF resolution is currently fixed at \(64^3\); thin frames and mesh
+  screens can lose detail or become inflated.
+- The live router estimates contact with scaled bounding proxies. The actual SDF
+  still controls rendering, but routing weights are not yet derived from exact
+  surface integrals.
+- CPU rebuilding of the unified imported volume becomes expensive as asset count
+  and resolution increase.
+- GLB material baking approximates complex node graphs. Procedural Blender
+  shaders must be baked to textures first.
+- WebGPU is experimental. Three.js/WebGL2 remains the reliable path.
+- Transparent surfaces use screen-space refraction and cannot reconstruct
+  geometry that is fully hidden outside the rendered scene buffers.
 
 ## Roadmap
 
-- [ ] Local `128³` or adaptive sparse narrow-band SDF
-- [ ] GPU ping-pong 3D phase-field evolution
-- [ ] Full PBR volume: metalness, normals, transmission, and emission
-- [ ] Screen-error-aware adaptive sphere tracing
-- [ ] OBJ, FBX, USD, and USDZ conversion
-- [ ] Undoable object and Boolean operation history
-- [ ] Reproducible desktop/mobile visual regression tests
-- [ ] Shareable scene files and hosted demos
+- Replace proxy contact measurements with GPU reductions over exact SDF overlap.
+- Move multi-volume composition and material baking to WebGPU compute.
+- Add sparse bricks or clipmaps for thin, high-detail imported assets.
+- Fit router score functions from interaction traces and visual-quality metrics.
+- Add reaction-diffusion material transport across the contact membrane.
+- Export the fused result through adaptive Dual Contouring.
+- Add deterministic scene files for reproducible experiments and benchmarks.
 
 ## Contributing
 
-Issues and pull requests are welcome.
+Useful contributions include:
 
-1. Do not commit `cache/`, logs, or imported user models.
-2. Test shader changes both with and without an imported model.
-3. Include browser, GPU, Blender version, and reproduction steps in bug reports.
-4. Do not submit code or assets with unknown or incompatible licensing.
-5. Preserve third-party licenses and update `THIRD_PARTY_NOTICES.md` when needed.
+- SDF conversion quality for thin or open meshes
+- stable material-volume interpolation
+- exact contact metrics
+- WebGPU compute kernels
+- visual regression scenes
+- performance traces from integrated GPUs
 
-High-impact contribution areas are adaptive SDF generation, phase-field compute, PBR volume baking, GPU profiling, and visual regression infrastructure.
+Please keep benchmark scenes and before/after screenshots with rendering
+changes. Visual claims should be reproducible.
+
+## License And Attribution
+
+MeltMesh is licensed under the [MIT License](LICENSE). Third-party dependencies
+and licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The project uses established public techniques including signed distance
+fields, sphere tracing, smooth CSG, phase fields, volume sampling, and PBR
+rendering. It does not contain copied Womp implementation code.
 
 ## 中文简介
 
-MeltMesh 是一个浏览器实时隐式建模实验项目。它允许导入 GLB，保留原始 PBR 材质，并让球体、圆角盒等现有几何通过定向布尔和局部相场逐渐溶解进导入模型。
+MeltMesh 是一个浏览器端实验性三维建模沙盘。它不只执行固定的平滑布尔，而是根据实时交互状态构造问题特征，动态分配三类数学模型的权重：
 
-项目当前重点不是复刻某个商业工具，而是探索一套可解释、可调节、可开源的连续几何交互模型。中文数学说明见 [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md)。
+- 隐式几何：决定接触面的形状、融合范围和布尔连续性；
+- 相场演化：决定溶解前沿、接触记忆和空间变化；
+- 折射材质：决定交汇区域如何继承、混合和重构源物体材质。
 
-## License
+当前版本支持最多五个 GLB 资产独立导入、选择和移动，并将原始 Three.js PBR 网格与生成式 SDF 表面放入同一深度管线。右侧面板会实时展示模型域权重和接触特征，便于观察系统为什么改变渲染策略。
 
-MeltMesh is released under the [MIT License](LICENSE).
-
-Bundled Three.js files remain under their original MIT license. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [vendor/three/LICENSE](vendor/three/LICENSE).
-
-## Attribution and independence
-
-- [Three.js](https://github.com/mrdoob/three.js) provides the PBR, GLB loading, and WebGL foundation.
-- Khronos glTF specifications define the interoperable GLB and material formats.
-- SDFs, smooth CSG, sphere tracing, finite differences, and phase fields are established public mathematical and graphics techniques.
-- Womp is a visual interaction benchmark only. MeltMesh contains no Womp source code or proprietary assets and is not affiliated with Womp.
-- Matt Keeter's Fidget is acknowledged as public technical inspiration for implicit modeling. No Fidget source fragment is bundled here.
+现阶段的路由器是可解释的启发式模型，不是训练完成的 AI。项目下一阶段会把精确 SDF 接触积分、WebGPU 计算和可学习策略接入同一个接口。
