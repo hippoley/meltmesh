@@ -172,6 +172,7 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
       shader.uniforms.uDomainImplicit = { value: 0.34 };
       shader.uniforms.uDomainPhase = { value: 0.33 };
       shader.uniforms.uDomainOptical = { value: 0.33 };
+      shader.uniforms.uContactDebug = { value: 1 };
       shader.uniforms.uImportedContactCenter = { value: new THREE.Vector3() };
       shader.uniforms.uImportedContactRadius = { value: 0.3 };
       shader.vertexShader = shader.vertexShader
@@ -190,6 +191,7 @@ uniform float uContactTime;
 uniform float uDomainImplicit;
 uniform float uDomainPhase;
 uniform float uDomainOptical;
+uniform float uContactDebug;
 uniform vec3 uReactionColor;
 varying vec3 vInteractionWorld;
 float interactionBoxSdf(vec3 p, vec3 b, float radius) {
@@ -243,11 +245,40 @@ if (uInteractionEnabled > 0.5) {
   diffuseColor.rgb = mix(diffuseColor.rgb, copiedMaterial, clamp(interactionWet * (0.36 + uDomainPhase * 0.32), 0.0, 0.86));
   outgoingLight = mix(outgoingLight, outgoingLight * (0.52 + uDomainImplicit * 0.22) + copiedMaterial * (0.18 + uDomainOptical * 0.24), clamp(interactionWet * (0.58 + uDomainPhase * 0.32), 0.0, 0.92));
   outgoingLight += mix(uReactionColor, vec3(0.98, 0.78, 0.28), contactSpectrum) * interactionEdge * (1.45 + uDomainOptical * 2.1);
+  outgoingLight = mix(outgoingLight, mix(vec3(0.05,0.95,0.78), vec3(1.0,0.28,0.08), contactSpectrum), clamp(uContactDebug * interactionWet * 0.78, 0.0, 0.82));
 }
 #include <output_fragment>`);
       interactionShaders.push(shader);
     };
-    material.customProgramCacheKey = () => 'refractive-contact-material-v5';
+    material.customProgramCacheKey = () => 'refractive-contact-material-v6';
+  }
+
+  function summarizeMaterials(model) {
+    const materials = new Set();
+    model.traverse(object => {
+      if (!object.isMesh || !object.material) return;
+      for (const material of (Array.isArray(object.material) ? object.material : [object.material])) materials.add(material);
+    });
+    const textureKeys = ['map','normalMap','roughnessMap','metalnessMap','emissiveMap','alphaMap','aoMap','bumpMap','displacementMap','clearcoatMap','transmissionMap'];
+    let textureCount = 0, metalness = 0, roughness = 0, transparent = 0;
+    const sourceColor = new THREE.Color();
+    for (const material of materials) {
+      textureCount += textureKeys.reduce((count, key) => count + (material[key] ? 1 : 0), 0);
+      metalness += Number.isFinite(material.metalness) ? material.metalness : 0;
+      roughness += Number.isFinite(material.roughness) ? material.roughness : 0.5;
+      transparent += material.transparent || material.opacity < 0.999 ? 1 : 0;
+      sourceColor.add(material.color || new THREE.Color(0x8c9ba6));
+    }
+    const materialCount = Math.max(materials.size, 1);
+    sourceColor.multiplyScalar(1 / materialCount);
+    return {
+      materialCount: materials.size,
+      textureCount,
+      metalness: metalness / materialCount,
+      roughness: roughness / materialCount,
+      transparent,
+      sourceColor,
+    };
   }
 
   function disposeModel() {
@@ -284,10 +315,17 @@ if (uInteractionEnabled > 0.5) {
       root.add(model);
       const mixer = gltf.animations.length ? new THREE.AnimationMixer(model) : null;
       if (mixer) for (const clip of gltf.animations) mixer.clipAction(clip).play();
-      const sourceColor = new THREE.Color(); let colorSamples = 0;
-      model.traverse(object => { if (!object.isMesh || !object.material) return; for (const material of (Array.isArray(object.material) ? object.material : [object.material])) if (material.color) { sourceColor.add(material.color); colorSamples++; } });
-      if (colorSamples) sourceColor.multiplyScalar(1 / colorSamples); else sourceColor.setRGB(0.55, 0.62, 0.68);
-      models.push({ model, mixer, index, name: list[index].name, basePosition: model.position.clone(), baseScale: scale, sourceColor });
+      const materialReport = summarizeMaterials(model);
+      const sourceColor = materialReport.sourceColor;
+      const state = getState();
+      if (state.imported?.[index]) state.imported[index].materialReport = {
+        materialCount: materialReport.materialCount,
+        textureCount: materialReport.textureCount,
+        metalness: materialReport.metalness,
+        roughness: materialReport.roughness,
+        transparent: materialReport.transparent,
+      };
+      models.push({ model, mixer, index, name: list[index].name, basePosition: model.position.clone(), baseScale: scale, sourceColor, materialReport });
       if (mixer) mixers.push(mixer);
     }
     ready = true;
@@ -388,6 +426,7 @@ if (uInteractionEnabled > 0.5) {
       shader.uniforms.uDomainImplicit.value = state.domainModel?.domains?.implicitGeometry ?? 0.34;
       shader.uniforms.uDomainPhase.value = state.domainModel?.domains?.phaseField ?? 0.33;
       shader.uniforms.uDomainOptical.value = state.domainModel?.domains?.optical ?? 0.33;
+      shader.uniforms.uContactDebug.value = state.contactDebug ? 1 : 0;
       shader.uniforms.uReactionColor.value.setRGB(state.color[0], state.color[1], state.color[2]).lerp(new THREE.Color(0x8dffd0), 0.42);
       const imported = state.imported || [];
       let contact = 0, closestPair = null, closestDistance = Infinity;

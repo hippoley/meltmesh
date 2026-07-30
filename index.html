@@ -13,7 +13,7 @@
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span><strong>MELTMESH</strong><span class="version">SDF / 01</span></div>
       <div class="top-actions">
         <div class="status"><span class="status-dot"></span><span id="renderStatus">WebGL2 实时</span><span class="divider"></span><span id="fps">-- FPS</span></div>
-        <button class="import-button" id="importButton" type="button" title="导入 OBJ 或 STL">
+        <button class="import-button" id="importButton" type="button" title="导入 GLB / OBJ / STL">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0-12 4 4m-4-4L8 7M5 14v5h14v-5"/></svg><span>导入</span>
         </button>
         <input id="fileInput" type="file" accept=".glb,.obj,.stl,.abc,.vdb,model/gltf-binary,model/obj,model/stl" multiple hidden>
@@ -31,7 +31,7 @@
         <button class="scene-item" data-focus="ground"><span class="shape-icon plane"></span><span><strong>地面</strong><small>Distance Plane</small></span><span class="visibility" aria-hidden="true">●</span></button>
         <button class="scene-item" data-focus="light"><span class="shape-icon light"></span><span><strong>主光源</strong><small>Directional</small></span><span class="visibility" aria-hidden="true">●</span></button>
         <div id="importedObjects"></div>
-        <div class="scene-footer"><span>拖动旋转</span><span>滚轮缩放</span></div>
+        <div class="scene-footer"><span>拖动移动</span><span>滚轮缩放</span></div>
       </aside>
 
       <div class="viewport fusion-active" id="viewport">
@@ -43,12 +43,12 @@
         <div class="viewport-label"><span>透视</span><span>96 STEPS</span></div>
         <div class="axis" aria-hidden="true"><i class="axis-y"></i><i class="axis-x"></i><b>Y</b><em>X</em></div>
         <div class="error-panel" id="errorPanel" hidden><strong>无法启动实时渲染</strong><p id="errorMessage"></p></div>
-        <div class="drop-hint" id="dropHint" hidden><strong>放开以导入模型</strong><span>GLB / OBJ / STL</span></div>
+        <div class="drop-hint" id="dropHint" hidden><strong>松开以导入模型</strong><span>GLB / OBJ / STL</span></div>
         <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
         <div class="timeline" id="timeline" hidden>
-          <button id="playSequence" class="play-button" type="button" aria-label="暂停序列" title="播放或暂停">Ⅱ</button>
+          <button id="playSequence" class="play-button" type="button" aria-label="播放或暂停序列" title="播放或暂停">Ⅱ</button>
           <span id="frameLabel">1 / 1</span>
-          <input id="frameSlider" type="range" min="0" max="0" value="0" step="1" aria-label="流体模拟帧">
+          <input id="frameSlider" type="range" min="0" max="0" value="0" step="1" aria-label="动画帧">
           <label>FPS <input id="sequenceFps" type="number" min="1" max="60" value="24"></label>
         </div>
       </div>
@@ -62,6 +62,16 @@
           <label class="scale-field"><span>缩放</span><input id="objectScale" type="number" min="0.1" max="4" step="0.05" value="1"></label>
         </div>
         <label class="fusion-toggle"><input id="meshFusion" type="checkbox" checked disabled><span id="fusionLabel">等待导入真实 SDF</span><i></i></label>
+        <label class="fusion-toggle debug-toggle"><input id="contactDebug" type="checkbox" checked><span>接触显影</span><i></i></label>
+        <section class="material-readout" aria-label="导入材质诊断">
+          <header><span>导入材质</span><strong id="materialReadoutStatus">未导入</strong></header>
+          <div class="readout-grid">
+            <span>材质</span><output id="readoutMaterialCount">--</output>
+            <span>纹理</span><output id="readoutTextureCount">--</output>
+            <span>金属度</span><output id="readoutMetalness">--</output>
+            <span>粗糙度</span><output id="readoutRoughness">--</output>
+          </div>
+        </section>
         <section class="domain-router" aria-label="数学域路由">
           <header><span>数学域路由</span><strong id="domainPrimary">隐式几何</strong></header>
           <div class="domain-row"><span>隐式几何</span><i id="domain-implicitGeometry"></i><output id="domain-implicitGeometry-value">--</output></div>
@@ -108,13 +118,13 @@
           <label class="control"><span><b>透射率</b><output for="transmission">0.98</output></span><input id="transmission" type="range" min="0.15" max="1" value="0.98" step="0.01"></label>
           <label class="control"><span><b>折射率 IOR</b><output for="ior">1.52</output></span><input id="ior" type="range" min="1" max="2.2" value="1.52" step="0.01"></label>
         </div>
-        <div class="equation"><span>场函数</span><code>sminₖ₍ₚ₎(A \ C(B), B)</code></div>
+        <div class="equation"><span>场函数</span><code>smin(A \\ C(B), B)</code></div>
       </aside>
     </section>
   </main>
   <script src="webgpu-renderer.js?v=12"></script>
-  <script src="domain-router.js?v=1"></script>
-  <script type="module" src="three-renderer.js?v=30"></script>
-  <script src="app.js?v=48"></script>
+  <script src="domain-router.js?v=2"></script>
+  <script type="module" src="three-renderer.js?v=31"></script>
+  <script src="app.js?v=49"></script>
 </body>
 </html>

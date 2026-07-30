@@ -16,6 +16,11 @@
     const sum = weights.reduce((a, b) => a + b, 0);
     return weights.map(value => value / sum);
   };
+  const radiusOf = object => {
+    if (!object) return 0;
+    if (Array.isArray(object.bounds)) return Math.hypot(...object.bounds) * (object.scale || 1) * 0.72;
+    return (object.scale || 1) * 0.72;
+  };
 
   function updateUi(model, time) {
     if (time - lastUiUpdate < 0.12) return;
@@ -58,7 +63,7 @@
         const a = objects[i];
         const b = objects[j];
         const distance = Math.hypot(...a.position.map((value, axis) => value - b.position[axis]));
-        separation = Math.min(separation, distance - (a.scale + b.scale) * 0.72);
+        separation = Math.min(separation, distance - radiusOf(a) - radiusOf(b));
       }
     }
 

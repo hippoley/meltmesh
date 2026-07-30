@@ -8,7 +8,7 @@ const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, powerPr
 const state = {
   blend: 0.28, spacing: 1.05, radius: 1, boxSize: 0.78, contactThreshold:0.32, consumeScale:0.86, booleanSmooth:0.24, frontNoise:0.14, dissolveRate:0.55, recoveryRate:0.04,
   roughness: 0.06, specular: 0.96, transmission: 0.98, ior: 1.52, color: [0.74, 0.91, 0.97],
-  yaw: -0.55, pitch: 0.25, distance: 6.2, preset: 0, selected: 'sphere', mode:'move', meshFusion:true, meshVolumeReady:false, dissolveMemory:0, phaseSeeds:Array.from({length:8},()=>[0,0,0,0]),phaseNormals:Array.from({length:8},()=>[0,1,0,0]),
+  yaw: -0.55, pitch: 0.25, distance: 6.2, preset: 0, selected: 'sphere', mode:'move', meshFusion:true, meshVolumeReady:false, contactDebug:true, dissolveMemory:0, phaseSeeds:Array.from({length:8},()=>[0,0,0,0]),phaseNormals:Array.from({length:8},()=>[0,1,0,0]),
   imported:[],
   objects:{sphere:{position:[-0.55,0,0],scale:1},box:{position:[0.5,0.08,0],scale:1},mesh:{position:[0,0,0],scale:1,bounds:[1,1,1]}}
 };
@@ -265,8 +265,17 @@ function showToast(message,isError=false){const toast=document.getElementById('t
 function updateTimeline(){const slider=document.getElementById('frameSlider');slider.value=sequenceFrame;document.getElementById('frameLabel').textContent=`${sequenceFrame+1} / ${meshFrames.length}`;}
 const objectNames={sphere:'球体',box:'圆角盒',mesh:'导入网格'};
 function selectObject(name){
-  if(!state.objects[name])return;state.selected=name;document.querySelectorAll('[data-object]').forEach(button=>button.classList.toggle('active',button.dataset.object===name));document.getElementById('selectedName').textContent=`${objectNames[name]} · 变换`;
+  if(!state.objects[name])return;state.selected=name;document.querySelectorAll('[data-object]').forEach(button=>button.classList.toggle('active',button.dataset.object===name));document.getElementById('selectedName').textContent=`${objectNames[name]||state.objects[name].name||'导入物体'} · 变换`;
   const object=state.objects[name];['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).value=object.position[index].toFixed(2));document.getElementById('objectScale').value=object.scale.toFixed(2);
+  updateMaterialReadout();
+}
+function updateMaterialReadout(){
+  const report=state.objects[state.selected]?.materialReport;
+  document.getElementById('materialReadoutStatus').textContent=report?'已解析':'未导入';
+  document.getElementById('readoutMaterialCount').textContent=report?String(report.materialCount):'--';
+  document.getElementById('readoutTextureCount').textContent=report?String(report.textureCount):'--';
+  document.getElementById('readoutMetalness').textContent=report?report.metalness.toFixed(2):'--';
+  document.getElementById('readoutRoughness').textContent=report?report.roughness.toFixed(2):'--';
 }
 function bindSceneItems(){document.querySelectorAll('[data-object]').forEach(button=>{button.onclick=()=>selectObject(button.dataset.object);});}
 function renderImportedObjectList(selected=state.selected){
@@ -281,6 +290,7 @@ document.getElementById('resetObject').addEventListener('click',()=>{const posit
 document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>{state.mode=button.dataset.mode;document.querySelectorAll('[data-mode]').forEach(item=>item.classList.toggle('active',item===button));canvas.style.cursor=state.mode==='move'?'move':'grab';}));
 function setFusionMode(enabled){state.meshFusion=enabled;viewport.classList.toggle('fusion-active',enabled);}
 document.getElementById('meshFusion').addEventListener('change',event=>setFusionMode(event.target.checked));
+document.getElementById('contactDebug').addEventListener('change',event=>{state.contactDebug=event.target.checked;showToast(state.contactDebug?'接触显影已开启':'接触显影已关闭');});
 bindSceneItems();
 async function importFiles(fileList){
   const files=Array.from(fileList).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));if(!files.length)return;
@@ -309,7 +319,7 @@ async function importGlbs(files){
   state.objects.mesh=state.imported[0]||state.objects.mesh;
   renderImportedObjectList(state.selected);
   const fusion=document.getElementById('meshFusion');fusion.checked=true;fusion.disabled=true;setFusionMode(true);
-  if(threeRenderer){threeRenderer.loadFile(file).then(()=>{threeModelReady=true;document.getElementById('renderStatus').textContent=webgpuRenderer?'Three.js PBR + WebGPU SDF':'Three.js PBR + SDF';showToast('Three.js 已载入原始 GLB 材质与动画');}).catch(error=>{const detail=String(error?.stack||error?.message||error);showToast(`Three.js 加载失败：${error.message}`,true);fetch(`/client-error?source=three-load&message=${encodeURIComponent(detail)}`).catch(()=>{});});}
+  if(threeRenderer){threeRenderer.loadFile(file).then(()=>{threeModelReady=true;updateMaterialReadout();document.getElementById('renderStatus').textContent=webgpuRenderer?'Three.js PBR + WebGPU SDF':'Three.js PBR + SDF';showToast('Three.js 已解析 GLB 原始材质与动画');}).catch(error=>{const detail=String(error?.stack||error?.message||error);showToast(`Three.js 加载失败：${error.message}`,true);fetch(`/client-error?source=three-load&message=${encodeURIComponent(detail)}`).catch(()=>{});});}
   try{
     showToast(`正在用 Blender 转换 ${file.name}...`);document.getElementById('renderStatus').textContent='转换 GLB';
     const form=new FormData();form.append('file',file);const response=await fetch('/api/convert-glb',{method:'POST',body:form});const manifest=await response.json();if(!response.ok)throw new Error(manifest.error||'转换服务不可用');
@@ -335,7 +345,7 @@ viewport.addEventListener('dragover',e=>{e.preventDefault();dropHint.hidden=fals
 window.addEventListener('webgpu-stage',event=>{if(!window.unifiedRendererActive&&!threeModelReady)document.getElementById('renderStatus').textContent=`WebGPU · ${event.detail}`;});
 window.addEventListener('webgpu-lost',event=>{webgpuRenderer=null;document.getElementById('viewport').classList.remove('webgpu-active');const status=document.getElementById('renderStatus');status.textContent='WebGL2 · WebGPU 设备已丢失';status.title=event.detail||'';showToast(`WebGPU 设备已丢失：${event.detail||'未知原因'}`,true);});
 if(window.createWebGpuRenderer){window.createWebGpuRenderer(document.getElementById('gpuCanvas'),()=>state).then(renderer=>{if(!renderer){document.getElementById('renderStatus').textContent='WebGL2 · 无 WebGPU 适配器';return;}if(window.unifiedRendererActive){renderer.stop();return;}webgpuRenderer=renderer;if(meshSdfData&&meshMaterialData)renderer.setVolume(meshSdfData,meshMaterialData,Math.round(Math.cbrt(meshSdfData.length)));document.getElementById('viewport').classList.add('webgpu-active');document.getElementById('renderStatus').textContent=threeModelReady?'Three.js PBR + WebGPU SDF':'WebGPU 实时';}).catch(error=>{console.warn('WebGPU fallback:',error);const message=String(error?.message||error),status=document.getElementById('renderStatus');status.textContent=`WebGL2 · ${message.slice(0,72)}`;status.title=message;showToast(`WebGPU：${message}`,true);fetch(`/client-error?source=webgpu&message=${encodeURIComponent(message)}`).catch(()=>{});});}
-async function initializeThree(){if(!window.createThreeRenderer||threeRenderer)return;try{threeRenderer=await window.createThreeRenderer(document.getElementById('threeCanvas'),()=>state);if(meshSdfData&&meshMaterialData)threeRenderer.setVolume(meshSdfData,meshMaterialData,Math.round(Math.cbrt(meshSdfData.length)));if(pendingThreeFile){await threeRenderer.loadFile(pendingThreeFile);threeModelReady=true;document.getElementById('renderStatus').textContent='Three.js 统一深度 + SDF';}}catch(error){console.warn('Three.js fallback:',error);const detail=String(error?.stack||error?.message||error);showToast(`Three.js 初始化失败：${error.message}`,true);fetch(`/client-error?source=three-init&message=${encodeURIComponent(detail)}`).catch(()=>{});}}
+async function initializeThree(){if(!window.createThreeRenderer||threeRenderer)return;try{threeRenderer=await window.createThreeRenderer(document.getElementById('threeCanvas'),()=>state);if(meshSdfData&&meshMaterialData)threeRenderer.setVolume(meshSdfData,meshMaterialData,Math.round(Math.cbrt(meshSdfData.length)));if(pendingThreeFile){await threeRenderer.loadFile(pendingThreeFile);threeModelReady=true;updateMaterialReadout();document.getElementById('renderStatus').textContent='Three.js 统一深度 + SDF';}}catch(error){console.warn('Three.js fallback:',error);const detail=String(error?.stack||error?.message||error);showToast(`Three.js 初始化失败：${error.message}`,true);fetch(`/client-error?source=three-init&message=${encodeURIComponent(detail)}`).catch(()=>{});}}
 window.addEventListener('unified-renderer-ready',()=>{webgpuRenderer?.stop?.();webgpuRenderer=null;viewport.classList.remove('webgpu-active');});
 window.addEventListener('three-module-ready',initializeThree);initializeThree();
 requestAnimationFrame(render);
