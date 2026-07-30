@@ -34,7 +34,9 @@ float sdRoundBox(vec3 p, vec3 b, float r){ vec3 q=abs(p)-b+r; return min(max(q.x
 float smin(float a,float b,float k){ float h=clamp(0.5+0.5*(b-a)/k,0.0,1.0); return mix(b,a,h)-k*h*(1.0-h); }
 float fieldHash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
 float fieldNoise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(mix(fieldHash(i),fieldHash(i+vec3(1,0,0)),f.x),mix(fieldHash(i+vec3(0,1,0)),fieldHash(i+vec3(1,1,0)),f.x),f.y),mix(mix(fieldHash(i+vec3(0,0,1)),fieldHash(i+vec3(1,0,1)),f.x),mix(fieldHash(i+vec3(0,1,1)),fieldHash(i+vec3(1,1,1)),f.x),f.y),f.z);}
-float dissolvePattern(vec3 p){vec3 flow=vec3(0.0,-uTime*0.09,uTime*0.035);float coarse=fieldNoise(p*3.8+flow),medium=fieldNoise(p*9.1-flow*1.7),fine=fieldNoise(p*21.0+flow*2.4);return (coarse*0.56+medium*0.30+fine*0.14)*2.0-1.0;}
+float quasiPattern(vec3 p){const float golden=2.39996323;float sum=0.0;for(int i=0;i<6;i++){float a=float(i)*golden;vec3 k=normalize(vec3(cos(a),sin(a),0.37+0.08*float(i)));sum+=cos(dot(p,k)*(3.2+0.47*float(i))+uTime*(0.12+0.027*float(i)));}return sum/6.0;}
+float dissolvePattern(vec3 p){vec3 flow=vec3(0.0,-uTime*0.09,uTime*0.035);float ordered=quasiPattern(p*1.08+flow),coarse=fieldNoise(p*3.8+flow),medium=fieldNoise(p*9.1-flow*1.7);return ordered*0.58+(coarse*0.28+medium*0.14)*2.0-0.42;}
+float refractiveSpectrum(vec3 p,vec3 n){vec3 axis=abs(n.y)<0.92?vec3(0,1,0):vec3(1,0,0),t1=normalize(cross(axis,n)),t2=normalize(cross(n,t1));float sum=0.0;for(int i=0;i<6;i++){float a=float(i)*2.39996323;vec3 incident=normalize(t1*cos(a)+t2*sin(a)+n*(0.20+0.045*float(i)));vec3 reflected=incident-2.0*n*dot(incident,n);float frequency=2.8+0.42*float(i);sum+=cos(dot(p,incident)*frequency+uTime*0.10*float(i+1));sum+=0.68*cos(dot(p,reflected)*frequency*0.83-uTime*0.07*float(i+1));}return sum/10.08;}
 vec3 importedUv(vec3 p){return (p-uMeshPos)/uMeshScale/(uMeshBounds*2.0)+0.5;}
 float importedSdf(vec3 p){vec3 local=(p-uMeshPos)/uMeshScale, q=abs(local)-uMeshBounds;float outside=length(max(q,0.0));if(max(q.x,max(q.y,q.z))>0.0)return outside*uMeshScale;return texture(uMeshSdf,importedUv(p)).r*uMeshScale;}
 float localPhase(vec3 p){float survival=1.0;float tangentSigma=max(uBlend*uConsumeScale*1.75,0.08),normalSigma=max(tangentSigma*0.34,0.035);for(int i=0;i<8;i++){vec3 delta=p-uPhaseSeeds[i].xyz,n=normalize(uPhaseNormals[i].xyz+vec3(1e-6));float normalDistance=dot(delta,n),tangentDistance2=max(dot(delta,delta)-normalDistance*normalDistance,0.0);float exponent=tangentDistance2/(2.0*tangentSigma*tangentSigma)+normalDistance*normalDistance/(2.0*normalSigma*normalSigma);float contribution=clamp(uPhaseSeeds[i].w*exp(-exponent),0.0,0.96);survival*=1.0-contribution;}return clamp(1.0-survival,0.0,1.0);}
@@ -74,12 +76,12 @@ float importedMaterialWeight(vec3 p){
   float ownership=clamp(0.5+0.5*(primitive-mesh)/(k*0.32),0.0,1.0);
   return max(absorbed,ownership);
 }
-float fusionReaction(vec3 p){
+float fusionReaction(vec3 p,vec3 n){
   float k=max(uBlend,0.001);vec2 pair=primitivePair(p);
   float primitiveContact=1.0-smoothstep(k*0.08,k*1.25,abs(pair.x-pair.y));
   float meshContact=0.0;if(uHasMeshSdf==1){float mesh=importedSdf(p),memory=max(smoothstep(0.0,1.0,uDissolveMemory)*0.18,localPhase(p));float front=mesh-k*mix(0.08,uConsumeScale,memory)+dissolvePattern(p*1.17+vec3(2.4))*k*mix(0.02,uFrontNoise,memory);meshContact=(1.0-smoothstep(k*0.05,k*0.42,abs(front)))*memory;}
-  float flow=0.72+0.28*dissolvePattern(p*0.82+vec3(0.0,uTime*0.04,0.0));
-  return clamp(max(primitiveContact,meshContact)*flow,0.0,1.0);
+  float spectrum=0.5+0.5*refractiveSpectrum(p,n),flow=0.72+0.28*dissolvePattern(p*0.82+vec3(0.0,uTime*0.04,0.0));
+  return clamp(max(primitiveContact,meshContact)*flow*(0.82+0.18*spectrum),0.0,1.0);
 }
 
 vec2 scene(vec3 p){
@@ -118,9 +120,9 @@ void main(){
   if(id>0.0){
     vec3 p=ro+rd*t,n=normalAt(p),lightDir=normalize(vec3(-0.65,0.85,-0.45));surfaceNormal=n;surfaceFresnel=pow(1.0-max(dot(n,-rd),0.0),5.0);vec3 sphereCenter=uSpherePos,boxCenter=uBoxPos;if(uPreset==0){sphereCenter=vec3(-uSpacing*0.52,0.0,0.0);boxCenter=vec3(uSpacing*0.48,0.08,0.0);}if(uPreset==1){sphereCenter=vec3(-0.32,-uSpacing*0.35,0.0);boxCenter=vec3(0.32,uSpacing*0.38,0.0);}surfaceIsSphere=step(abs(sdSphere(p-sphereCenter,uRadius*uSphereScale)),abs(sdRoundBox(p-boxCenter,vec3(uBoxSize,uBoxSize*0.82,uBoxSize*0.9)*uBoxScale,0.28*uBoxScale)));
     float diff=max(dot(n,lightDir),0.0),shadow=softShadow(p+n*0.008,lightDir,0.03,10.0),ao=ambientOcclusion(p,n);
-    vec3 albedo=uColor;float surfaceRoughness=uRoughness;float reaction=id<1.5?fusionReaction(p):0.0;
+    vec3 albedo=uColor;float surfaceRoughness=uRoughness;float reaction=id<1.5?fusionReaction(p,n):0.0;float spectrum=0.5+0.5*refractiveSpectrum(p,n);
     if(id<1.5&&uHasMeshSdf==1&&uHasMeshMaterial==1){float materialWeight=importedMaterialWeight(p);vec4 imported=texture(uMeshMaterial,clamp(importedUv(p),0.0,1.0));float junction=pow(max(0.0,1.0-abs(materialWeight*2.0-1.0)),1.7);albedo=mix(albedo,imported.rgb,smoothstep(0.04,0.96,materialWeight));albedo=mix(albedo,normalize(max(albedo,vec3(0.001)))*1.08,junction*0.24);surfaceRoughness=mix(surfaceRoughness,imported.a,smoothstep(0.08,0.92,materialWeight));surfaceRoughness=mix(surfaceRoughness,0.12,junction*0.34);}
-    if(id<1.5){albedo=mix(albedo,albedo*vec3(0.58,0.82,0.78),reaction*0.42);surfaceRoughness=mix(surfaceRoughness,0.025,reaction*0.72);}
+    if(id<1.5){vec3 spectralTint=mix(vec3(0.12,0.68,0.58),vec3(0.86,0.38,0.16),spectrum);albedo=mix(albedo,albedo*vec3(0.58,0.82,0.78),reaction*0.42);albedo=mix(albedo,spectralTint,reaction*0.10);surfaceRoughness=mix(surfaceRoughness,0.025,reaction*0.72);}
     if(id>1.5){ float grid=mod(floor(p.x*2.0)+floor(p.z*2.0),2.0); albedo=mix(vec3(0.66,0.70,0.72),vec3(0.78,0.81,0.80),grid); }
     vec3 viewDir=-rd,halfDir=normalize(lightDir+viewDir);
     float noV=max(dot(n,viewDir),0.001),noL=max(dot(n,lightDir),0.0),noH=max(dot(n,halfDir),0.0),voH=max(dot(viewDir,halfDir),0.0);
