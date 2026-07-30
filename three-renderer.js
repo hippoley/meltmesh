@@ -169,6 +169,9 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
       shader.uniforms.uContactTime = { value: 0 };
       shader.uniforms.uReactionColor = { value: new THREE.Color(0x9dffdc) };
       shader.uniforms.uImportedContact = { value: 0 };
+      shader.uniforms.uDomainImplicit = { value: 0.34 };
+      shader.uniforms.uDomainPhase = { value: 0.33 };
+      shader.uniforms.uDomainOptical = { value: 0.33 };
       shader.uniforms.uImportedContactCenter = { value: new THREE.Vector3() };
       shader.uniforms.uImportedContactRadius = { value: 0.3 };
       shader.vertexShader = shader.vertexShader
@@ -184,6 +187,9 @@ uniform vec4 uContactBox;
 uniform vec3 uContactBoxSize;
 uniform float uContactBand;
 uniform float uContactTime;
+uniform float uDomainImplicit;
+uniform float uDomainPhase;
+uniform float uDomainOptical;
 uniform vec3 uReactionColor;
 varying vec3 vInteractionWorld;
 float interactionBoxSdf(vec3 p, vec3 b, float radius) {
@@ -222,22 +228,26 @@ if (uInteractionEnabled > 0.5) {
   float penetration = max(1.0 - smoothstep(-band * 0.72, band * 0.10, contactDistance), importedKernel);
   float coarse = interactionNoise(vInteractionWorld * 7.0 + vec3(0.0, uContactTime * 0.08, 0.0));
   float pores = interactionNoise(vInteractionWorld * 31.0 - vec3(0.0, uContactTime * 0.16, 0.0));
-  float dissolveMask = mix(coarse, pores, 0.32);
-  interactionEdge = max(exp(-abs(contactDistance + band * 0.04) / (band * 0.11)), importedKernel * (1.0 - importedKernel)) * (0.72 + dissolveMask * 0.28);
-  interactionWet = penetration * (0.82 + dissolveMask * 0.18);
+  float mirrored = refractiveContactSpectrum(vInteractionWorld + vec3(coarse, pores, coarse - pores) * band * 2.4);
+  float dissolveMask = mix(coarse, pores, 0.32 + uDomainPhase * 0.38);
+  float membrane = exp(-abs(contactDistance + band * 0.04) / max(band * mix(0.18, 0.06, uDomainImplicit), 0.002));
+  interactionEdge = max(membrane, importedKernel * (1.0 - importedKernel) * 2.4) * (0.55 + dissolveMask * 0.45) * (0.8 + uDomainPhase * 1.9);
+  interactionWet = clamp(penetration * (0.62 + dissolveMask * 0.38) + interactionEdge * 0.28, 0.0, 1.0);
+  interactionWet *= 0.72 + uDomainOptical * 1.45 + mirrored * 0.35;
 }`)
         .replace('#include <output_fragment>', `
 if (uInteractionEnabled > 0.5) {
   float contactSpectrum = refractiveContactSpectrum(vInteractionWorld);
-  vec3 reflectedMaterial = mix(uReactionColor, vec3(0.94, 0.34, 0.15), contactSpectrum);
-  diffuseColor.rgb = mix(diffuseColor.rgb, reflectedMaterial, interactionWet * 0.22);
-  outgoingLight = mix(outgoingLight, outgoingLight * 0.72 + uReactionColor * 0.16, interactionWet * 0.42);
-  outgoingLight += mix(uReactionColor, vec3(0.98, 0.78, 0.28), contactSpectrum) * interactionEdge * 1.15;
+  vec3 reflectedMaterial = mix(uReactionColor, vec3(0.96, 0.42, 0.12), contactSpectrum);
+  vec3 copiedMaterial = mix(diffuseColor.rgb, reflectedMaterial, 0.54 + uDomainOptical * 0.32);
+  diffuseColor.rgb = mix(diffuseColor.rgb, copiedMaterial, clamp(interactionWet * (0.36 + uDomainPhase * 0.32), 0.0, 0.86));
+  outgoingLight = mix(outgoingLight, outgoingLight * (0.52 + uDomainImplicit * 0.22) + copiedMaterial * (0.18 + uDomainOptical * 0.24), clamp(interactionWet * (0.58 + uDomainPhase * 0.32), 0.0, 0.92));
+  outgoingLight += mix(uReactionColor, vec3(0.98, 0.78, 0.28), contactSpectrum) * interactionEdge * (1.45 + uDomainOptical * 2.1);
 }
 #include <output_fragment>`);
       interactionShaders.push(shader);
     };
-    material.customProgramCacheKey = () => 'refractive-contact-material-v4';
+    material.customProgramCacheKey = () => 'refractive-contact-material-v5';
   }
 
   function disposeModel() {
@@ -350,7 +360,8 @@ if (uInteractionEnabled > 0.5) {
     requestAnimationFrame(frame);
     const width = Math.max(1, canvas.clientWidth), height = Math.max(1, canvas.clientHeight);
     renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
-    const state = getState(), delta = Math.min(clock.getDelta(), 0.05), cp = Math.cos(state.pitch);
+    const state = getState(), now = performance.now() / 1000, delta = Math.min(clock.getDelta(), 0.05), cp = Math.cos(state.pitch);
+    window.mathDomainRouter?.update(state, now);
     evolveDissolveMemory(state, delta);
     const effective=state.domainModel?.effective||state;sdfUniforms.uConsumeScale.value=effective.consumeScale;sdfUniforms.uBooleanSmooth.value=state.booleanSmooth;sdfUniforms.uFrontNoise.value=effective.frontNoise;
     for(let index=0;index<phaseSeeds.length;index++)sdfUniforms.uPhaseSeeds.value[index].set(...phaseSeeds[index].position,phaseSeeds[index].strength);
@@ -373,7 +384,10 @@ if (uInteractionEnabled > 0.5) {
       shader.uniforms.uContactBox.value.set(...box.position, 0.28 * box.scale);
       shader.uniforms.uContactBoxSize.value.set(state.boxSize * box.scale, state.boxSize * 0.82 * box.scale, state.boxSize * 0.9 * box.scale);
       shader.uniforms.uContactBand.value = Math.max(state.blend, 0.01);
-      shader.uniforms.uContactTime.value = performance.now() / 1000;
+      shader.uniforms.uContactTime.value = now;
+      shader.uniforms.uDomainImplicit.value = state.domainModel?.domains?.implicitGeometry ?? 0.34;
+      shader.uniforms.uDomainPhase.value = state.domainModel?.domains?.phaseField ?? 0.33;
+      shader.uniforms.uDomainOptical.value = state.domainModel?.domains?.optical ?? 0.33;
       shader.uniforms.uReactionColor.value.setRGB(state.color[0], state.color[1], state.color[2]).lerp(new THREE.Color(0x8dffd0), 0.42);
       const imported = state.imported || [];
       let contact = 0, closestPair = null, closestDistance = Infinity;
