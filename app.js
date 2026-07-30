@@ -251,6 +251,12 @@ function selectObject(name){
   const object=state.objects[name];['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).value=object.position[index].toFixed(2));document.getElementById('objectScale').value=object.scale.toFixed(2);
 }
 function bindSceneItems(){document.querySelectorAll('[data-object]').forEach(button=>{button.onclick=()=>selectObject(button.dataset.object);});}
+function renderImportedObjectList(selected=state.selected){
+  document.getElementById('importedObjects').innerHTML=state.imported.map((item,index)=>`<button class="scene-item" data-object="mesh-${index}"><span class="shape-icon mesh"></span><span><strong>${item.name.replace(/[<>&]/g,'')}</strong><small>GLB · 交互物体 ${index+1}/5</small></span><span class="visibility">●</span></button>`).join('');
+  document.querySelector('.scene-panel .count').textContent=String(3+state.imported.length);
+  bindSceneItems();
+  if(state.objects[selected])selectObject(selected);else if(state.imported.length)selectObject('mesh-0');
+}
 ['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)){state.objects[state.selected].position[index]=value;state.preset=3;document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}));
 document.getElementById('objectScale').addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)&&value>0){state.objects[state.selected].scale=value;state.preset=3;document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}});
 document.getElementById('resetObject').addEventListener('click',()=>{const positions={sphere:[-.55,0,0],box:[.5,.08,0],mesh:[0,0,0]},object=state.objects[state.selected],fallback=positions[state.selected]||[0,0,0],bounds=object?.bounds;state.objects[state.selected]={...object,position:[...fallback],scale:1,...(bounds?{bounds}: {})};state.preset=3;selectObject(state.selected);});
@@ -283,15 +289,14 @@ async function importGlbs(files){
   state.imported=allFiles.map((item,index)=>{const previous=existing[index];return{id:`mesh-${index}`,name:item.name,file:item,position:previous?.position||[(index%3-1)*1.35,Math.floor(index/3)*0.95-0.45,0],scale:previous?.scale||1,bounds:previous?.bounds||[1,1,1]};});
   for(const item of state.imported) state.objects[item.id]=item;
   state.objects.mesh=state.imported[0]||state.objects.mesh;
-  document.getElementById('importedObjects').innerHTML=state.imported.map((item,index)=>`<button class="scene-item" data-object="mesh-${index}"><span class="shape-icon mesh"></span><span><strong>${item.name.replace(/[<>&]/g,'')}</strong><small>GLB · 交互物体 ${index+1}/5</small></span><span class="visibility">●</span></button>`).join('');bindSceneItems();selectObject('mesh-0');
-  document.querySelector('.scene-panel .count').textContent=String(3+state.imported.length);
+  renderImportedObjectList(state.selected);
   const fusion=document.getElementById('meshFusion');fusion.checked=true;fusion.disabled=true;setFusionMode(true);
   if(threeRenderer){threeRenderer.loadFile(file).then(()=>{threeModelReady=true;document.getElementById('renderStatus').textContent=webgpuRenderer?'Three.js PBR + WebGPU SDF':'Three.js PBR + SDF';showToast('Three.js 已载入原始 GLB 材质与动画');}).catch(error=>{const detail=String(error?.stack||error?.message||error);showToast(`Three.js 加载失败：${error.message}`,true);fetch(`/client-error?source=three-load&message=${encodeURIComponent(detail)}`).catch(()=>{});});}
   try{
     showToast(`正在用 Blender 转换 ${file.name}...`);document.getElementById('renderStatus').textContent='转换 GLB';
     const form=new FormData();form.append('file',file);const response=await fetch('/api/convert-glb',{method:'POST',body:form});const manifest=await response.json();if(!response.ok)throw new Error(manifest.error||'转换服务不可用');
     const converted=[];for(const url of manifest.frames){const frameResponse=await fetch(url);if(!frameResponse.ok)throw new Error('无法读取转换后的动画帧');converted.push(new File([await frameResponse.blob()],url.split('/').pop(),{type:'model/stl'}));}
-    document.getElementById('sequenceFps').value=Math.max(1,Math.min(60,Math.round(manifest.fps||24)));await importFiles(converted);fusion.disabled=true;
+    document.getElementById('sequenceFps').value=Math.max(1,Math.min(60,Math.round(manifest.fps||24)));await importFiles(converted);renderImportedObjectList(state.selected);fusion.disabled=true;
     if(manifest.sdf){
       const resolveCacheUrl=name=>name&&name.startsWith('/')?name:manifest.frames[0].replace(/[^/]+$/,name||'mesh-material.bin');
       const size=manifest.sdf.resolution,sdfResponse=await fetch(resolveCacheUrl(manifest.sdf.url));
