@@ -169,12 +169,16 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
       shader.uniforms.uContactTime = { value: 0 };
       shader.uniforms.uReactionColor = { value: new THREE.Color(0x9dffdc) };
       shader.uniforms.uImportedContact = { value: 0 };
+      shader.uniforms.uImportedContactCenter = { value: new THREE.Vector3() };
+      shader.uniforms.uImportedContactRadius = { value: 0.3 };
       shader.vertexShader = shader.vertexShader
         .replace('void main() {', 'varying vec3 vInteractionWorld;\nvoid main() {')
         .replace('#include <project_vertex>', '#include <project_vertex>\nvInteractionWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
       shader.fragmentShader = shader.fragmentShader
         .replace('void main() {', `uniform float uInteractionEnabled;
 uniform float uImportedContact;
+uniform vec3 uImportedContactCenter;
+uniform float uImportedContactRadius;
 uniform vec4 uContactSphere;
 uniform vec4 uContactBox;
 uniform vec3 uContactBoxSize;
@@ -214,12 +218,13 @@ if (uInteractionEnabled > 0.5) {
   float boxDistance = interactionBoxSdf(vInteractionWorld - uContactBox.xyz, uContactBoxSize, uContactBox.w);
   float contactDistance = min(sphereDistance, boxDistance);
   float band = max(uContactBand, 0.015);
-  float penetration = max(1.0 - smoothstep(-band * 0.72, band * 0.10, contactDistance), uImportedContact);
+  float importedKernel = uImportedContact * exp(-dot(vInteractionWorld - uImportedContactCenter, vInteractionWorld - uImportedContactCenter) / max(uImportedContactRadius * uImportedContactRadius, 0.0001));
+  float penetration = max(1.0 - smoothstep(-band * 0.72, band * 0.10, contactDistance), importedKernel);
   float coarse = interactionNoise(vInteractionWorld * 7.0 + vec3(0.0, uContactTime * 0.08, 0.0));
   float pores = interactionNoise(vInteractionWorld * 31.0 - vec3(0.0, uContactTime * 0.16, 0.0));
   float dissolveMask = mix(coarse, pores, 0.32);
-  interactionEdge = exp(-abs(contactDistance + band * 0.04) / (band * 0.11)) * (0.72 + dissolveMask * 0.28);
-  interactionWet = (1.0 - smoothstep(0.0, band * 0.72, max(contactDistance, 0.0))) * (0.82 + dissolveMask * 0.18);
+  interactionEdge = max(exp(-abs(contactDistance + band * 0.04) / (band * 0.11)), importedKernel * (1.0 - importedKernel)) * (0.72 + dissolveMask * 0.28);
+  interactionWet = penetration * (0.82 + dissolveMask * 0.18);
 }`)
         .replace('#include <output_fragment>', `
 if (uInteractionEnabled > 0.5) {
@@ -269,7 +274,10 @@ if (uInteractionEnabled > 0.5) {
       root.add(model);
       const mixer = gltf.animations.length ? new THREE.AnimationMixer(model) : null;
       if (mixer) for (const clip of gltf.animations) mixer.clipAction(clip).play();
-      models.push({ model, mixer, index, name: list[index].name, basePosition: model.position.clone(), baseScale: scale });
+      const sourceColor = new THREE.Color(); let colorSamples = 0;
+      model.traverse(object => { if (!object.isMesh || !object.material) return; for (const material of (Array.isArray(object.material) ? object.material : [object.material])) if (material.color) { sourceColor.add(material.color); colorSamples++; } });
+      if (colorSamples) sourceColor.multiplyScalar(1 / colorSamples); else sourceColor.setRGB(0.55, 0.62, 0.68);
+      models.push({ model, mixer, index, name: list[index].name, basePosition: model.position.clone(), baseScale: scale, sourceColor });
       if (mixer) mixers.push(mixer);
     }
     ready = true;
@@ -368,13 +376,15 @@ if (uInteractionEnabled > 0.5) {
       shader.uniforms.uContactTime.value = performance.now() / 1000;
       shader.uniforms.uReactionColor.value.setRGB(state.color[0], state.color[1], state.color[2]).lerp(new THREE.Color(0x8dffd0), 0.42);
       const imported = state.imported || [];
-      let contact = 0;
+      let contact = 0, closestPair = null, closestDistance = Infinity;
       for (let i = 0; i < imported.length; i++) for (let j = i + 1; j < imported.length; j++) {
         const a = imported[i], b = imported[j];
         const distance = Math.hypot(a.position[0] - b.position[0], a.position[1] - b.position[1], a.position[2] - b.position[2]);
         contact = Math.max(contact, THREE.MathUtils.clamp(1 - distance / Math.max(state.blend * 2.4, 0.2), 0, 1));
+        if(distance < closestDistance){closestDistance=distance;closestPair=[i,j];}
       }
       shader.uniforms.uImportedContact.value = contact;
+      if(closestPair){const [i,j]=closestPair,a=imported[i],b=imported[j],ca=models[i]?.sourceColor,cb=models[j]?.sourceColor;shader.uniforms.uImportedContactCenter.value.set((a.position[0]+b.position[0])*.5,(a.position[1]+b.position[1])*.5,(a.position[2]+b.position[2])*.5);shader.uniforms.uImportedContactRadius.value=Math.max(state.blend*1.6,.18);if(ca&&cb)shader.uniforms.uReactionColor.value.copy(ca).lerp(cb,.5);}
     }
     for (const mixer of mixers) mixer.update(delta);
     renderer.setRenderTarget(sceneTarget);renderer.clear(true,true,true);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.clear(true,true,true);renderer.render(sdfScene,sdfCamera);
