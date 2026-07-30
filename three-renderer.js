@@ -151,7 +151,7 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
   const loader = new GLTFLoader();
   const clock = new THREE.Clock();
   const interactionShaders = [];
-  let mixer = null, model = null, ready = false, sdfVolume = dummySdf, materialVolume = dummyMaterial, sdfCpuData = null, sdfCpuSize = 1;
+  let mixers = [], models = [], ready = false, sdfVolume = dummySdf, materialVolume = dummyMaterial, sdfCpuData = null, sdfCpuSize = 1;
   let dissolveMemory = 0, nextPhaseSeed = 0, lastSeedPosition = null, lastMeshTransform = null;
   const phaseSeeds = Array.from({length:8},()=>({position:[0,0,0],normal:[0,1,0],strength:0}));
 
@@ -234,19 +234,24 @@ if (uInteractionEnabled > 0.5) {
   }
 
   function disposeModel() {
-    if (!model) return;
-    model.traverse(object => { if (object.geometry) object.geometry.dispose(); });
-    root.remove(model); model = null; mixer = null; ready = false; interactionShaders.length = 0;
+    for (const entry of models) entry.model.traverse(object => { if (object.geometry) object.geometry.dispose(); });
+    for (const entry of models) root.remove(entry.model);
+    models = []; mixers = []; ready = false; interactionShaders.length = 0;
   }
   async function loadFile(file) {
+    return loadFiles(window.__pendingThreeFiles?.length ? window.__pendingThreeFiles : [file]);
+  }
+  async function loadFiles(files) {
     disposeModel();
-    const buffer = sanitizeGlb(await file.arrayBuffer());
-    const gltf = await new Promise((resolve, reject) => loader.parse(buffer, '', resolve, reject));
-    model = gltf.scene;
-    const bounds = new THREE.Box3().setFromObject(model), size = bounds.getSize(new THREE.Vector3()), center = bounds.getCenter(new THREE.Vector3());
-    const scale = 2.6 / Math.max(size.x, size.y, size.z, 0.0001);
-    model.scale.setScalar(scale); model.position.copy(center.multiplyScalar(-scale));
-    model.traverse(object => {
+    const list = Array.from(files).slice(0, 5);
+    for (let index = 0; index < list.length; index++) {
+      const buffer = sanitizeGlb(await list[index].arrayBuffer());
+      const gltf = await new Promise((resolve, reject) => loader.parse(buffer, '', resolve, reject));
+      const model = gltf.scene;
+      const bounds = new THREE.Box3().setFromObject(model), size = bounds.getSize(new THREE.Vector3()), center = bounds.getCenter(new THREE.Vector3());
+      const scale = 2.6 / Math.max(size.x, size.y, size.z, 0.0001);
+      model.scale.setScalar(scale); model.position.copy(center.multiplyScalar(-scale));
+      model.traverse(object => {
       if (!object.isMesh) return;
       object.frustumCulled = true;
       if (object.material) {
@@ -258,11 +263,15 @@ if (uInteractionEnabled > 0.5) {
           material.needsUpdate = true;
         }
       }
-    });
-    root.add(model);
-    if (gltf.animations.length) { mixer = new THREE.AnimationMixer(model); for (const clip of gltf.animations) mixer.clipAction(clip).play(); }
+      });
+      root.add(model);
+      const mixer = gltf.animations.length ? new THREE.AnimationMixer(model) : null;
+      if (mixer) for (const clip of gltf.animations) mixer.clipAction(clip).play();
+      models.push({ model, mixer, index, name: list[index].name, basePosition: model.position.clone(), baseScale: scale });
+      if (mixer) mixers.push(mixer);
+    }
     ready = true;
-    return { animations: gltf.animations.length, meshes: model.children.length };
+    return { count: models.length, animations: mixers.length };
   }
   function setVolume(sdfData, materialData, size) {
     if (sdfVolume !== dummySdf) sdfVolume.dispose();
@@ -340,7 +349,13 @@ if (uInteractionEnabled > 0.5) {
     camera.lookAt(0, -0.05, 0);camera.updateMatrixWorld();viewProjection.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
     renderer.getDrawingBufferSize(drawingSize);if(sceneTarget.width!==drawingSize.x||sceneTarget.height!==drawingSize.y)sceneTarget.setSize(drawingSize.x,drawingSize.y);sdfUniforms.uResolution.value.copy(drawingSize);sdfUniforms.uTime.value=performance.now()/1000;sdfUniforms.uBlend.value=state.blend;sdfUniforms.uSpacing.value=state.spacing;sdfUniforms.uRadius.value=state.radius;sdfUniforms.uBoxSize.value=state.boxSize;sdfUniforms.uRoughness.value=state.roughness;sdfUniforms.uSpecular.value=state.specular;sdfUniforms.uTransmission.value=state.transmission;sdfUniforms.uIor.value=state.ior;sdfUniforms.uDissolveMemory.value=dissolveMemory;sdfUniforms.uColor.value.set(...state.color);sdfUniforms.uCamera.value.copy(camera.position);sdfUniforms.uPreset.value=state.preset;sdfUniforms.uSpherePos.value.set(...state.objects.sphere.position);sdfUniforms.uBoxPos.value.set(...state.objects.box.position);sdfUniforms.uSphereScale.value=state.objects.sphere.scale;sdfUniforms.uBoxScale.value=state.objects.box.scale;sdfUniforms.uMeshPos.value.set(...state.objects.mesh.position);sdfUniforms.uMeshBounds.value.set(...state.objects.mesh.bounds);sdfUniforms.uMeshScale.value=state.objects.mesh.scale;sdfUniforms.uHasMeshSdf.value=state.meshFusion&&state.meshVolumeReady?1:0;
     root.visible = ready;
-    root.position.set(...state.objects.mesh.position); root.scale.setScalar(state.objects.mesh.scale);
+    root.position.set(0, 0, 0); root.scale.setScalar(1);
+    for (const entry of models) {
+      const object = state.imported?.[entry.index] || state.objects.mesh;
+      const position = object?.position || [0, 0, 0];
+      entry.model.position.set(entry.basePosition.x + position[0], entry.basePosition.y + position[1], entry.basePosition.z + position[2]);
+      entry.model.scale.setScalar(entry.baseScale * (object?.scale || 1));
+    }
     for (const shader of interactionShaders) {
       const sphere = state.objects.sphere, box = state.objects.box;
       shader.uniforms.uInteractionEnabled.value = state.meshFusion && state.meshVolumeReady ? 1 : 0;
@@ -351,7 +366,7 @@ if (uInteractionEnabled > 0.5) {
       shader.uniforms.uContactTime.value = performance.now() / 1000;
       shader.uniforms.uReactionColor.value.setRGB(state.color[0], state.color[1], state.color[2]).lerp(new THREE.Color(0x8dffd0), 0.42);
     }
-    if (mixer) mixer.update(delta);
+    for (const mixer of mixers) mixer.update(delta);
     renderer.setRenderTarget(sceneTarget);renderer.clear(true,true,true);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.clear(true,true,true);renderer.render(sdfScene,sdfCamera);
   }
   frame();
@@ -359,7 +374,7 @@ if (uInteractionEnabled > 0.5) {
   document.getElementById('viewport').classList.add('unified-renderer');
   document.getElementById('renderStatus').textContent = 'Three.js · 统一深度 SDF';
   window.dispatchEvent(new Event('unified-renderer-ready'));
-  return { loadFile, setVolume, isReady: () => ready, isUnified: () => true };
+  return { loadFile, loadFiles, setVolume, isReady: () => ready, isUnified: () => true };
 };
 
 window.dispatchEvent(new Event('three-module-ready'));

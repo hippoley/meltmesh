@@ -9,6 +9,7 @@ const state = {
   blend: 0.28, spacing: 1.05, radius: 1, boxSize: 0.78, contactThreshold:0.32, consumeScale:0.86, booleanSmooth:0.24, frontNoise:0.14, dissolveRate:0.55, recoveryRate:0.04,
   roughness: 0.06, specular: 0.96, transmission: 0.98, ior: 1.52, color: [0.74, 0.91, 0.97],
   yaw: -0.55, pitch: 0.25, distance: 6.2, preset: 0, selected: 'sphere', mode:'move', meshFusion:true, meshVolumeReady:false, dissolveMemory:0, phaseSeeds:Array.from({length:8},()=>[0,0,0,0]),phaseNormals:Array.from({length:8},()=>[0,1,0,0]),
+  imported:[],
   objects:{sphere:{position:[-0.55,0,0],scale:1},box:{position:[0.5,0.08,0],scale:1},mesh:{position:[0,0,0],scale:1,bounds:[1,1,1]}}
 };
 
@@ -211,7 +212,7 @@ void main(){
   vec3 base=vec3(0.76,0.86,0.34),col=base*(0.28+0.72*diff)+rim*0.14;
   outColor=vec4(col,0.96);
 }`;
-let meshProgram=null,meshFrames=[],meshSdfTexture=null,meshMaterialTexture=null,meshSdfData=null,meshMaterialData=null,webgpuRenderer=null,threeRenderer=null,threeModelReady=false,pendingThreeFile=null,meshVertexCount=0,sequencePlaying=true,sequenceStart=performance.now(),sequenceFrame=0;
+let meshProgram=null,meshFrames=[],meshSdfTexture=null,meshMaterialTexture=null,meshSdfData=null,meshMaterialData=null,webgpuRenderer=null,threeRenderer=null,threeModelReady=false,pendingThreeFile=null,pendingThreeFiles=[],meshVertexCount=0,sequencePlaying=true,sequenceStart=performance.now(),sequenceFrame=0;
 if(meshGl){
   const meshCompile=(type,source)=>{const shader=meshGl.createShader(type);meshGl.shaderSource(shader,source);meshGl.compileShader(shader);if(!meshGl.getShaderParameter(shader,meshGl.COMPILE_STATUS))throw new Error(meshGl.getShaderInfoLog(shader));return shader;};
   meshProgram=meshGl.createProgram();meshGl.attachShader(meshProgram,meshCompile(meshGl.VERTEX_SHADER,meshVertex));meshGl.attachShader(meshProgram,meshCompile(meshGl.FRAGMENT_SHADER,meshFragment));meshGl.linkProgram(meshProgram);
@@ -252,14 +253,15 @@ function selectObject(name){
 function bindSceneItems(){document.querySelectorAll('[data-object]').forEach(button=>{button.onclick=()=>selectObject(button.dataset.object);});}
 ['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)){state.objects[state.selected].position[index]=value;state.preset=3;document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}));
 document.getElementById('objectScale').addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)&&value>0){state.objects[state.selected].scale=value;state.preset=3;document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}});
-document.getElementById('resetObject').addEventListener('click',()=>{const positions={sphere:[-.55,0,0],box:[.5,.08,0],mesh:[0,0,0]},bounds=state.objects[state.selected].bounds;state.objects[state.selected]={position:[...positions[state.selected]],scale:1,...(bounds?{bounds}: {})};state.preset=3;selectObject(state.selected);});
+document.getElementById('resetObject').addEventListener('click',()=>{const positions={sphere:[-.55,0,0],box:[.5,.08,0],mesh:[0,0,0]},object=state.objects[state.selected],fallback=positions[state.selected]||[0,0,0],bounds=object?.bounds;state.objects[state.selected]={...object,position:[...fallback],scale:1,...(bounds?{bounds}: {})};state.preset=3;selectObject(state.selected);});
 document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>{state.mode=button.dataset.mode;document.querySelectorAll('[data-mode]').forEach(item=>item.classList.toggle('active',item===button));canvas.style.cursor=state.mode==='move'?'move':'grab';}));
 function setFusionMode(enabled){state.meshFusion=enabled;viewport.classList.toggle('fusion-active',enabled);}
 document.getElementById('meshFusion').addEventListener('change',event=>setFusionMode(event.target.checked));
 bindSceneItems();
 async function importFiles(fileList){
   const files=Array.from(fileList).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));if(!files.length)return;
-  if(files.length===1&&files[0].name.toLowerCase().endsWith('.glb')){await importGlb(files[0]);return;}
+  const glbs=files.filter(file=>file.name.toLowerCase().endsWith('.glb'));
+  if(glbs.length){await importGlbs(glbs.slice(0,5));if(glbs.length>5)showToast('最多支持 5 个 GLB，已忽略多出的文件',true);return;}
   const unsupported=files.find(file=>['abc','vdb'].includes(file.name.split('.').pop().toLowerCase()));if(unsupported){showToast(`${unsupported.name} 需要服务端转换；请从 Blender 导出 OBJ 序列`,true);return;}
   if(files.some(file=>!['obj','stl'].includes(file.name.split('.').pop().toLowerCase()))){showToast('请选择 OBJ、STL，或同格式的帧序列',true);return;}
   try{showToast(`正在解析 ${files.length} 个网格帧...`);const raw=[];for(const file of files){const ext=file.name.split('.').pop().toLowerCase();raw.push(ext==='obj'?parseObj(await file.text()):parseStl(await file.arrayBuffer()));}const normalized=normalizeMeshSequence(raw);
@@ -268,8 +270,14 @@ async function importFiles(fileList){
     const label=files.length>1?`${files[0].name} +${files.length-1}`:files[0].name;document.getElementById('importedObjects').innerHTML=`<button class="scene-item" data-object="mesh"><span class="shape-icon mesh"></span><span><strong>${label.replace(/[<>&]/g,'')}</strong><small>${files.length} frame${files.length>1?'s':''} · mesh cache</small></span><span class="visibility">●</span></button>`;bindSceneItems();selectObject('mesh');showToast(`已导入 ${files.length} 帧 · ${Math.round(meshVertexCount/3).toLocaleString()} 个三角形/当前帧`);
   }catch(error){showToast(`导入失败：${error.message}`,true);}
 }
-async function importGlb(file){
-  pendingThreeFile=file;threeModelReady=false;state.meshVolumeReady=false;
+async function importGlbs(files){
+  const file=files[0];
+  pendingThreeFiles=files;pendingThreeFile=file;threeModelReady=false;state.meshVolumeReady=false;
+  window.__pendingThreeFiles=files;
+  state.imported=files.map((item,index)=>({id:`mesh-${index}`,name:item.name,position:[(index%3-1)*1.35,Math.floor(index/3)*0.95-0.45,0],scale:1,bounds:[1,1,1]}));
+  for(const item of state.imported) state.objects[item.id]=item;
+  state.objects.mesh=state.imported[0]||state.objects.mesh;
+  document.getElementById('importedObjects').innerHTML=state.imported.map((item,index)=>`<button class="scene-item" data-object="mesh-${index}"><span class="shape-icon mesh"></span><span><strong>${item.name.replace(/[<>&]/g,'')}</strong><small>GLB · 交互物体 ${index+1}/5</small></span><span class="visibility">●</span></button>`).join('');bindSceneItems();selectObject('mesh-0');
   const fusion=document.getElementById('meshFusion');fusion.checked=true;fusion.disabled=true;setFusionMode(true);
   if(threeRenderer){threeRenderer.loadFile(file).then(()=>{threeModelReady=true;document.getElementById('renderStatus').textContent=webgpuRenderer?'Three.js PBR + WebGPU SDF':'Three.js PBR + SDF';showToast('Three.js 已载入原始 GLB 材质与动画');}).catch(error=>{const detail=String(error?.stack||error?.message||error);showToast(`Three.js 加载失败：${error.message}`,true);fetch(`/client-error?source=three-load&message=${encodeURIComponent(detail)}`).catch(()=>{});});}
   try{
