@@ -4,39 +4,24 @@
 
 ![MeltMesh 预览图](docs/meltmesh-hero.svg)
 
-MeltMesh 是一个浏览器端三维建模实验沙盘。
+MeltMesh 是一个浏览器端三维建模实验沙盘。它不是把 GLB 模型简单叠在 SDF 胶体上，而是尝试让导入资产进入同一个隐式几何场、材质场和接触相场。
 
-它的目标不是复刻传统 CAD，也不是只把 GLB 模型叠在 SDF 胶体上，而是让导入模型真正进入同一个隐式场、材质场和接触相场。
+核心想法：
 
-## 核心切入点
-
-当多个物体接触时，接触区不再只是两个图层的视觉重叠，而会变成一个新的可计算材料区域。
-
-系统会根据交互状态自动调整三类数学模型的权重：
-
-1. **隐式几何**
-   - 决定融合形状、布尔边界和连续表面。
-   - 对应 SDF、smooth CSG、sphere tracing。
-
-2. **相场演化**
-   - 决定溶解前沿、接触记忆和空间变化。
-   - 对应局部 phase field、接触种子、非均匀扰动。
-
-3. **折射材质**
-   - 决定交界处如何继承、混合、复制源物体材质。
-   - 对应 Fresnel、材质阻抗、准晶谱场和屏幕空间折射。
+> 当多个物体接触时，接触区本身变成一种新的可计算材料。
 
 ## 当前能力
 
-- 支持最多五个 GLB 资产独立导入。
-- 每个导入资产可以单独选择、移动、缩放。
-- 保留原始 Three.js PBR 网格、贴图、动画和材质响应。
-- 通过 Blender 把 GLB 转成 `64^3` SDF 体。
-- 烘焙颜色、粗糙度、金属度、透明度、发光和透射率。
-- 让导入模型和 SDF 几何体进入同一套融合规则。
-- 接触区会产生溶解、折射、材质迁移和 reflection 条带。
+- 最多导入 5 个 GLB 资产，后续导入不会替换前一个资产。
+- 每个导入资产可以独立选择、移动和缩放。
+- 保留 Three.js PBR 网格、贴图、动画和材质响应。
+- 通过 Blender 把 GLB 几何转成 `64^3` SDF 体。
+- 烘焙源颜色、粗糙度、金属度、透明度、发光和透射率。
+- 让解析 SDF 几何体与导入网格进入同一套融合规则。
+- 接触区会产生局部溶解、材质迁移、折射 reflection 条带和接触记忆。
+- 前端工作台支持 8 种语言运行时切换。
 
-## 数学模型
+## 数学建模方向
 
 系统把交互状态抽象成：
 
@@ -56,7 +41,7 @@ p_t,\ d_t,\ v_t,\ \tau_t,\ c_t,\ n_t
 - `c_t`：材质差异；
 - `n_t`：活跃物体数量。
 
-然后通过路由器得到三个数学域的权重：
+路由器把状态映射到三个数学域：
 
 ```math
 \pi_t =
@@ -68,25 +53,24 @@ s_{\mathrm{optical}}(z_t)
 \end{bmatrix}
 ```
 
-这些权重会实时影响几何融合、相场溶解和材质折射。
+三个域分别控制：
 
-接触区的 reflection 可以写成：
+1. **隐式几何**：SDF、smooth CSG、sphere tracing。
+2. **相场演化**：局部 phase field、接触种子、非均匀溶解前沿。
+3. **折射材质**：Fresnel、材质阻抗、准晶格 reflection 和屏幕空间折射。
+
+接触区的 reflection 可以简化写成：
 
 ```math
 R(x,n,t) =
 K(x,t)\ I(x)\ Q(x,n,t)\ F(n,v)
 ```
 
-其中：
-
-- `K` 是接触核；
-- `I` 是材质阻抗；
-- `Q` 是准晶谱场；
-- `F` 是 Fresnel 反射项。
-
-这就是为什么接触区应该出现空间分布不同的颜色、反射和溶解纹理，而不是一整块单调的发光材质。
+这意味着接触区不应该是一整块单调发光材质，而应该随空间位置、法线、材质差异和接触历史产生不同的颜色、纹理和折射结构。
 
 ## 本地运行
+
+需要 Python 3.10+，并建议安装 Blender 4.x。
 
 ```bash
 git clone https://github.com/hippoley/meltmesh.git
@@ -100,17 +84,29 @@ python server.py
 http://127.0.0.1:4173/
 ```
 
-如果 Blender 不在 `PATH` 里，可以设置：
+如果 Blender 不在 `PATH` 中，可以设置：
 
 ```powershell
 $env:FIELD_STUDIO_BLENDER="C:\Program Files\Blender Foundation\Blender 4.3\blender.exe"
 python server.py
 ```
 
+## 适合贡献的方向
+
+- 更稳定的 GLB 到 SDF 转换，尤其是薄片、纱网、开口模型。
+- WebGPU compute 多体融合。
+- 接触区材质迁移和 reaction-diffusion。
+- 可复现 benchmark 场景和视觉回归测试。
+- 更好的示例资产、截图、短视频和文档翻译。
+
 ## 原创性说明
 
-MeltMesh 使用的是公开图形学技术：SDF、sphere tracing、smooth CSG、相场、体采样、屏幕空间折射和 PBR 渲染。
+MeltMesh 使用公开图形学技术：SDF、sphere tracing、smooth CSG、相场、体采样、屏幕空间折射和 PBR。项目把 Womp 作为软融合视觉效果的公开对标对象，但不包含 Womp 源码、私有算法、资产或实现材料。
 
-项目把 Womp 作为公开视觉交互参考，但不包含 Womp 源码、私有算法、资产、商标或复制实现。
+更多说明见：
 
-项目也参考过 Matt Keeter 的 Fidget 作为隐式建模方向的公开技术启发，但仓库里没有包含 Fidget 的源码文件或代码片段。
+- [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md)
+- [MODEL_SPECIFICATION.md](MODEL_SPECIFICATION.md)
+- [REFRACTION_MODEL.md](REFRACTION_MODEL.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [ROADMAP.md](ROADMAP.md)

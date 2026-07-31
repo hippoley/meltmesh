@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a modeling, rendering, import, or community improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What should MeltMesh make possible?
+      placeholder: I want imported glass and metal objects to transfer material traits at contact instead of showing a flat blend.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: If you have a math, rendering, or UX idea, describe it here.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - SDF / implicit geometry
+        - Phase-field dissolution
+        - Refractive material transfer
+        - GLB import
+        - WebGPU
+        - UI / i18n
+        - Documentation / demo
+    validations:
+      required: true

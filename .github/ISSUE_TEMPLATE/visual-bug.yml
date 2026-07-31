@@ -1,0 +1,54 @@
+name: Visual bug
+description: Report a rendering, import, material, or fusion artifact.
+title: "[Visual bug]: "
+labels: ["visual-regression"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What looks wrong?
+      description: Describe the artifact and what you expected to see.
+      placeholder: The imported GLB keeps its PBR material, but the fused contact band becomes flat gray.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and GPU
+      placeholder: Chrome 128, RTX 4060 / Intel Iris Xe
+    validations:
+      required: true
+  - type: dropdown
+    id: renderer
+    attributes:
+      label: Renderer path
+      options:
+        - Three.js unified scene
+        - WebGL2 fallback
+        - WebGPU experimental
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: asset
+    attributes:
+      label: Imported asset
+      description: File type, approximate triangle count if known, material type, and whether Blender conversion succeeded.
+      placeholder: GLB, animated window-screen object, metal + fabric material, Blender conversion succeeded.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Import ...
+        2. Select ...
+        3. Move into contact ...
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshot or recording
+      description: Drag images or videos here if possible.

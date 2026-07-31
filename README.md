@@ -18,7 +18,7 @@ depth-aware scene.
 ![Status](https://img.shields.io/badge/status-research%20prototype-ff6b35.svg)
 
 [Why](#why) · [Demo](#demo-workflow) · [Model](#core-model) ·
-[Architecture](#architecture) · [Run](#run-locally)
+[Architecture](#architecture) · [Run](#run-locally) · [Contribute](#contributing)
 
 Languages:
 [English](README.md) ·
@@ -52,6 +52,7 @@ signature, then routes the response between three domains:
 ## What works today
 
 - Import up to **five GLB assets** without replacing earlier imports.
+- Switch the workbench UI between **8 languages** at runtime.
 - Keep each imported asset independently selectable and transformable.
 - Preserve original Three.js PBR meshes, textures, animations, and material response.
 - Convert GLB geometry into a `64^3` SDF volume through Blender.
@@ -269,13 +270,16 @@ MeltMesh is a research prototype, not a production CAD kernel.
 
 ## Roadmap
 
-- GPU exact overlap metrics over imported SDF volumes.
-- WebGPU compute for multi-volume composition.
-- Sparse brick volumes for thin imported assets.
-- Reaction-diffusion material transport across the contact membrane.
-- Learned or fitted routing policies from interaction traces.
-- Adaptive Dual Contouring export of fused surfaces.
-- Reproducible benchmark scenes and visual regression tests.
+- **One-click web demo** with a bundled sample scene and recorded GIF preview.
+- **GPU exact overlap metrics** over imported SDF volumes.
+- **WebGPU compute** for multi-volume composition.
+- **Sparse brick volumes** for thin imported assets.
+- **Reaction-diffusion material transport** across the contact membrane.
+- **Fitted routing policies** from interaction traces.
+- **Adaptive Dual Contouring export** of fused surfaces.
+- **Reproducible benchmark scenes** and visual regression tests.
+
+See [ROADMAP.md](ROADMAP.md) for the community-facing milestone plan.
 
 ## Originality and attribution
 
@@ -294,6 +298,8 @@ Third-party dependency notices are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 Good first contribution areas:
 
