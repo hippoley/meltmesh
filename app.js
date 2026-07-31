@@ -12,7 +12,7 @@ const state = {
   imported:[],
   objects:{
     sphere:{position:[-0.55,0,0],scale:1,role:'memory',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.72,0.93,1]}},
-    box:{position:[0.5,0.08,0],scale:1,role:'hybrid',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.1,0.95,0.82]}},
+    box:{position:[0.5,0.08,0],scale:1,visible:false,role:'hybrid',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.1,0.95,0.82]}},
     mesh:{position:[0,0,0],scale:1,bounds:[1,1,1],role:'real',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.72,0.93,1]}}
   }
 };
@@ -32,7 +32,7 @@ uniform float uTime, uBlend, uSpacing, uRadius, uBoxSize, uRoughness, uSpecular,
 uniform vec3 uColor, uCamera, uSpherePos, uBoxPos, uMeshPos, uMeshBounds;
 uniform vec4 uSphereResidue, uBoxResidue;
 uniform vec3 uSphereResidueColor, uBoxResidueColor;
-uniform float uSphereScale, uBoxScale;
+uniform float uSphereScale, uBoxScale, uShowBox;
 uniform float uMeshScale; uniform int uHasMeshSdf, uHasMeshMaterial, uHasMeshFeatures; uniform sampler3D uMeshSdf; uniform sampler3D uMeshMaterial; uniform sampler3D uMeshFeatures;
 uniform vec4 uPhaseSeeds[8];
 uniform vec4 uPhaseNormals[8];
@@ -59,7 +59,7 @@ vec2 primitivePair(vec3 p){
   float sphere=sdSphere(p-a,uRadius*uSphereScale);
   vec3 bp=p-b;
   if(uPreset==2) bp.xy*=mat2(cos(0.55),-sin(0.55),sin(0.55),cos(0.55));
-  float box=sdRoundBox(bp,vec3(uBoxSize,uBoxSize*0.82,uBoxSize*0.9)*uBoxScale,0.28*uBoxScale);
+  float box=uShowBox>0.5?sdRoundBox(bp,vec3(uBoxSize,uBoxSize*0.82,uBoxSize*0.9)*uBoxScale,0.28*uBoxScale):1e6;
   return vec2(sphere,box);
 }
 float primitiveSdf(vec3 p){
@@ -159,7 +159,7 @@ try {
 const positions=new Float32Array([-1,-1,3,-1,-1,3]);
 const buffer=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buffer); gl.bufferData(gl.ARRAY_BUFFER,positions,gl.STATIC_DRAW);
 const pos=gl.getAttribLocation(program,'position'); gl.enableVertexAttribArray(pos); gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0); gl.useProgram(program);
-const uniformNames=['uResolution','uTime','uBlend','uSpacing','uRadius','uBoxSize','uRoughness','uSpecular','uTransmission','uIor','uDissolveMemory','uConsumeScale','uBooleanSmooth','uFrontNoise','uPhaseSeeds[0]','uPhaseNormals[0]','uColor','uCamera','uPreset','uSpherePos','uBoxPos','uSphereScale','uBoxScale','uSphereResidue','uBoxResidue','uSphereResidueColor','uBoxResidueColor','uMeshPos','uMeshBounds','uMeshScale','uHasMeshSdf','uHasMeshMaterial','uHasMeshFeatures','uMeshSdf','uMeshMaterial','uMeshFeatures'];
+const uniformNames=['uResolution','uTime','uBlend','uSpacing','uRadius','uBoxSize','uRoughness','uSpecular','uTransmission','uIor','uDissolveMemory','uConsumeScale','uBooleanSmooth','uFrontNoise','uPhaseSeeds[0]','uPhaseNormals[0]','uColor','uCamera','uPreset','uSpherePos','uBoxPos','uSphereScale','uBoxScale','uShowBox','uSphereResidue','uBoxResidue','uSphereResidueColor','uBoxResidueColor','uMeshPos','uMeshBounds','uMeshScale','uHasMeshSdf','uHasMeshMaterial','uHasMeshFeatures','uMeshSdf','uMeshMaterial','uMeshFeatures'];
 const uniforms=Object.fromEntries(uniformNames.map(name=>[name,gl.getUniformLocation(program,name)]));
 
 function resize(){ const dpr=Math.min(devicePixelRatio||1,1.75); const w=Math.round(canvas.clientWidth*dpr),h=Math.round(canvas.clientHeight*dpr); if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;meshCanvas.width=w;meshCanvas.height=h;gl.viewport(0,0,w,h);if(meshGl)meshGl.viewport(0,0,w,h);} }
@@ -174,7 +174,7 @@ function render(now){
   resize(); const cp=Math.cos(state.pitch), camera=[Math.sin(state.yaw)*cp*state.distance,Math.sin(state.pitch)*state.distance,Math.cos(state.yaw)*cp*state.distance];
   if(threeRenderer?.isUnified?.()){requestAnimationFrame(render);return;}
   if(webgpuRenderer){renderImportedMesh(camera);requestAnimationFrame(render);return;}
-  gl.uniform2f(uniforms.uResolution,canvas.width,canvas.height); gl.uniform1f(uniforms.uTime,now/1000); gl.uniform1f(uniforms.uBlend,effective.blend); gl.uniform1f(uniforms.uSpacing,state.spacing); gl.uniform1f(uniforms.uRadius,state.radius); gl.uniform1f(uniforms.uBoxSize,state.boxSize); gl.uniform1f(uniforms.uRoughness,state.roughness); gl.uniform1f(uniforms.uSpecular,state.specular); gl.uniform1f(uniforms.uTransmission,effective.transmission); gl.uniform1f(uniforms.uIor,state.ior); gl.uniform1f(uniforms.uDissolveMemory,state.dissolveMemory); gl.uniform3fv(uniforms.uColor,state.color); gl.uniform3fv(uniforms.uCamera,camera); gl.uniform1i(uniforms.uPreset,state.preset);gl.uniform3fv(uniforms.uSpherePos,state.objects.sphere.position);gl.uniform3fv(uniforms.uBoxPos,state.objects.box.position);gl.uniform1f(uniforms.uSphereScale,state.objects.sphere.scale);gl.uniform1f(uniforms.uBoxScale,state.objects.box.scale);gl.uniform4fv(uniforms.uSphereResidue,residueVector(state.objects.sphere));gl.uniform4fv(uniforms.uBoxResidue,residueVector(state.objects.box));gl.uniform3fv(uniforms.uSphereResidueColor,residueColor(state.objects.sphere));gl.uniform3fv(uniforms.uBoxResidueColor,residueColor(state.objects.box));gl.uniform3fv(uniforms.uMeshPos,state.objects.mesh.position);gl.uniform3fv(uniforms.uMeshBounds,state.objects.mesh.bounds);gl.uniform1f(uniforms.uMeshScale,state.objects.mesh.scale);gl.uniform1i(uniforms.uHasMeshSdf,state.meshFusion&&meshSdfTexture?1:0);gl.uniform1i(uniforms.uHasMeshMaterial,meshMaterialTexture?1:0);gl.uniform1i(uniforms.uHasMeshFeatures,meshFeaturesTexture?1:0);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_3D,meshSdfTexture);gl.uniform1i(uniforms.uMeshSdf,0);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,meshMaterialTexture);gl.uniform1i(uniforms.uMeshMaterial,1);gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_3D,meshFeaturesTexture);gl.uniform1i(uniforms.uMeshFeatures,2);
+  gl.uniform2f(uniforms.uResolution,canvas.width,canvas.height); gl.uniform1f(uniforms.uTime,now/1000); gl.uniform1f(uniforms.uBlend,effective.blend); gl.uniform1f(uniforms.uSpacing,state.spacing); gl.uniform1f(uniforms.uRadius,state.radius); gl.uniform1f(uniforms.uBoxSize,state.boxSize); gl.uniform1f(uniforms.uRoughness,state.roughness); gl.uniform1f(uniforms.uSpecular,state.specular); gl.uniform1f(uniforms.uTransmission,effective.transmission); gl.uniform1f(uniforms.uIor,state.ior); gl.uniform1f(uniforms.uDissolveMemory,state.dissolveMemory); gl.uniform3fv(uniforms.uColor,state.color); gl.uniform3fv(uniforms.uCamera,camera); gl.uniform1i(uniforms.uPreset,state.preset);gl.uniform3fv(uniforms.uSpherePos,state.objects.sphere.position);gl.uniform3fv(uniforms.uBoxPos,state.objects.box.position);gl.uniform1f(uniforms.uSphereScale,state.objects.sphere.scale);gl.uniform1f(uniforms.uBoxScale,state.objects.box.scale);gl.uniform1f(uniforms.uShowBox,state.objects.box.visible!==false?1:0);gl.uniform4fv(uniforms.uSphereResidue,residueVector(state.objects.sphere));gl.uniform4fv(uniforms.uBoxResidue,residueVector(state.objects.box));gl.uniform3fv(uniforms.uSphereResidueColor,residueColor(state.objects.sphere));gl.uniform3fv(uniforms.uBoxResidueColor,residueColor(state.objects.box));gl.uniform3fv(uniforms.uMeshPos,state.objects.mesh.position);gl.uniform3fv(uniforms.uMeshBounds,state.objects.mesh.bounds);gl.uniform1f(uniforms.uMeshScale,state.objects.mesh.scale);gl.uniform1i(uniforms.uHasMeshSdf,state.meshFusion&&meshSdfTexture?1:0);gl.uniform1i(uniforms.uHasMeshMaterial,meshMaterialTexture?1:0);gl.uniform1i(uniforms.uHasMeshFeatures,meshFeaturesTexture?1:0);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_3D,meshSdfTexture);gl.uniform1i(uniforms.uMeshSdf,0);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,meshMaterialTexture);gl.uniform1i(uniforms.uMeshMaterial,1);gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_3D,meshFeaturesTexture);gl.uniform1i(uniforms.uMeshFeatures,2);
   gl.drawArrays(gl.TRIANGLES,0,3); frameCount++;
   renderImportedMesh(camera);
   if(now-lastFps>700){ document.getElementById('fps').textContent=`${Math.round(frameCount*1000/(now-lastFps))} FPS`; frameCount=0; lastFps=now; }

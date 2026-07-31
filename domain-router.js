@@ -98,7 +98,7 @@
       ['sphere', state.objects.sphere],
       ['box', state.objects.box],
       ...(state.imported || []).map((object, index) => [`mesh-${index}`, object]),
-    ].filter(([, object]) => object);
+    ].filter(([, object]) => object && object.visible !== false);
     let speed = 0;
 
     for (const [id, object] of objects) {

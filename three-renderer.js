@@ -134,7 +134,7 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
   const sdfUniforms = {
     uResolution:{value:new THREE.Vector2(1,1)},uViewProjection:{value:viewProjection},uSceneColor:{value:sceneTarget.texture},uSceneDepth:{value:sceneTarget.depthTexture},uTime:{value:0},uBlend:{value:.28},uSpacing:{value:1.05},uRadius:{value:1},uBoxSize:{value:.78},uRoughness:{value:.06},uSpecular:{value:.96},uTransmission:{value:.98},uIor:{value:1.52},uDissolveMemory:{value:0},uConsumeScale:{value:.86},uBooleanSmooth:{value:.24},uFrontNoise:{value:.14},
     uColor:{value:new THREE.Vector3(.74,.91,.97)},uCamera:{value:new THREE.Vector3()},uSpherePos:{value:new THREE.Vector3()},uBoxPos:{value:new THREE.Vector3()},uMeshPos:{value:new THREE.Vector3()},uMeshBounds:{value:new THREE.Vector3(1,1,1)},uPhaseSeeds:{value:Array.from({length:8},()=>new THREE.Vector4())},uPhaseNormals:{value:Array.from({length:8},()=>new THREE.Vector4(0,1,0,0))},
-    uSphereScale:{value:1},uBoxScale:{value:1},uMeshScale:{value:1},uHasMeshSdf:{value:0},uHasMeshMaterial:{value:0},uHasMeshFeatures:{value:0},uMeshSdf:{value:dummySdf},uMeshMaterial:{value:dummyMaterial},uMeshFeatures:{value:dummyFeatures},uPreset:{value:0}
+    uSphereScale:{value:1},uBoxScale:{value:1},uShowBox:{value:0},uMeshScale:{value:1},uHasMeshSdf:{value:0},uHasMeshMaterial:{value:0},uHasMeshFeatures:{value:0},uMeshSdf:{value:dummySdf},uMeshMaterial:{value:dummyMaterial},uMeshFeatures:{value:dummyFeatures},uPreset:{value:0}
   };
   const sdfMaterial = new THREE.RawShaderMaterial({
     glslVersion:THREE.GLSL3,
@@ -168,6 +168,7 @@ window.createThreeRenderer = async function createThreeRenderer(canvas, getState
       shader.uniforms.uContactSphere = { value: new THREE.Vector4() };
       shader.uniforms.uContactBox = { value: new THREE.Vector4() };
       shader.uniforms.uContactBoxSize = { value: new THREE.Vector3() };
+      shader.uniforms.uShowBox = { value: 0 };
       shader.uniforms.uContactBand = { value: 0.28 };
       shader.uniforms.uContactTime = { value: 0 };
       shader.uniforms.uReactionColor = { value: new THREE.Color(0x9dffdc) };
@@ -192,6 +193,7 @@ uniform float uImportedContactRadius;
 uniform vec4 uContactSphere;
 uniform vec4 uContactBox;
 uniform vec3 uContactBoxSize;
+uniform float uShowBox;
 uniform float uContactBand;
 uniform float uContactTime;
 uniform float uDomainImplicit;
@@ -243,7 +245,7 @@ float interactionWet = 0.0;
 if (uInteractionEnabled > 0.5) {
   float sphereDistance = length(vInteractionWorld - uContactSphere.xyz) - uContactSphere.w;
   float boxDistance = interactionBoxSdf(vInteractionWorld - uContactBox.xyz, uContactBoxSize, uContactBox.w);
-  float contactDistance = min(sphereDistance, boxDistance);
+  float contactDistance = uShowBox > 0.5 ? min(sphereDistance, boxDistance) : sphereDistance;
   float band = max(uContactBand, 0.015);
   float importedKernel = uImportedContact * exp(-dot(vInteractionWorld - uImportedContactCenter, vInteractionWorld - uImportedContactCenter) / max(uImportedContactRadius * uImportedContactRadius, 0.0001));
   float penetration = max(1.0 - smoothstep(-band * 0.72, band * 0.10, contactDistance), importedKernel);
@@ -470,7 +472,7 @@ if (uInteractionEnabled > 0.5) {
     for(let index=0;index<phaseSeeds.length;index++)sdfUniforms.uPhaseNormals.value[index].set(...phaseSeeds[index].normal,0);
     camera.position.set(Math.sin(state.yaw) * cp * state.distance, Math.sin(state.pitch) * state.distance, Math.cos(state.yaw) * cp * state.distance);
     camera.lookAt(0, -0.05, 0);camera.updateMatrixWorld();viewProjection.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
-    renderer.getDrawingBufferSize(drawingSize);if(sceneTarget.width!==drawingSize.x||sceneTarget.height!==drawingSize.y)sceneTarget.setSize(drawingSize.x,drawingSize.y);sdfUniforms.uResolution.value.copy(drawingSize);sdfUniforms.uTime.value=performance.now()/1000;sdfUniforms.uBlend.value=effective.blend;sdfUniforms.uSpacing.value=state.spacing;sdfUniforms.uRadius.value=state.radius;sdfUniforms.uBoxSize.value=state.boxSize;sdfUniforms.uRoughness.value=state.roughness;sdfUniforms.uSpecular.value=state.specular;sdfUniforms.uTransmission.value=effective.transmission;sdfUniforms.uIor.value=state.ior;sdfUniforms.uDissolveMemory.value=dissolveMemory;sdfUniforms.uColor.value.set(...state.color);sdfUniforms.uCamera.value.copy(camera.position);sdfUniforms.uPreset.value=state.preset;sdfUniforms.uSpherePos.value.set(...state.objects.sphere.position);sdfUniforms.uBoxPos.value.set(...state.objects.box.position);sdfUniforms.uSphereScale.value=state.objects.sphere.scale;sdfUniforms.uBoxScale.value=state.objects.box.scale;sdfUniforms.uMeshPos.value.set(...state.objects.mesh.position);sdfUniforms.uMeshBounds.value.set(...state.objects.mesh.bounds);sdfUniforms.uMeshScale.value=state.objects.mesh.scale;sdfUniforms.uHasMeshSdf.value=state.meshFusion&&state.meshVolumeReady?1:0;
+    renderer.getDrawingBufferSize(drawingSize);if(sceneTarget.width!==drawingSize.x||sceneTarget.height!==drawingSize.y)sceneTarget.setSize(drawingSize.x,drawingSize.y);sdfUniforms.uResolution.value.copy(drawingSize);sdfUniforms.uTime.value=performance.now()/1000;sdfUniforms.uBlend.value=effective.blend;sdfUniforms.uSpacing.value=state.spacing;sdfUniforms.uRadius.value=state.radius;sdfUniforms.uBoxSize.value=state.boxSize;sdfUniforms.uRoughness.value=state.roughness;sdfUniforms.uSpecular.value=state.specular;sdfUniforms.uTransmission.value=effective.transmission;sdfUniforms.uIor.value=state.ior;sdfUniforms.uDissolveMemory.value=dissolveMemory;sdfUniforms.uColor.value.set(...state.color);sdfUniforms.uCamera.value.copy(camera.position);sdfUniforms.uPreset.value=state.preset;sdfUniforms.uSpherePos.value.set(...state.objects.sphere.position);sdfUniforms.uBoxPos.value.set(...state.objects.box.position);sdfUniforms.uSphereScale.value=state.objects.sphere.scale;sdfUniforms.uBoxScale.value=state.objects.box.scale;sdfUniforms.uShowBox.value=state.objects.box.visible!==false?1:0;sdfUniforms.uMeshPos.value.set(...state.objects.mesh.position);sdfUniforms.uMeshBounds.value.set(...state.objects.mesh.bounds);sdfUniforms.uMeshScale.value=state.objects.mesh.scale;sdfUniforms.uHasMeshSdf.value=state.meshFusion&&state.meshVolumeReady?1:0;
     root.visible = ready;
     root.position.set(0, 0, 0); root.scale.setScalar(1);
     for (const entry of models) {
@@ -486,6 +488,7 @@ if (uInteractionEnabled > 0.5) {
       shader.uniforms.uContactSphere.value.set(...sphere.position, state.radius * sphere.scale);
       shader.uniforms.uContactBox.value.set(...box.position, 0.28 * box.scale);
       shader.uniforms.uContactBoxSize.value.set(state.boxSize * box.scale, state.boxSize * 0.82 * box.scale, state.boxSize * 0.9 * box.scale);
+      shader.uniforms.uShowBox.value = box.visible !== false ? 1 : 0;
       shader.uniforms.uContactBand.value = Math.max(state.blend, 0.01);
       shader.uniforms.uContactTime.value = now;
       shader.uniforms.uDomainImplicit.value = state.domainModel?.domains?.implicitGeometry ?? 0.34;
