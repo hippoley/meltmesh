@@ -44,19 +44,19 @@ class FieldStudioHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if urlparse(self.path).path != "/api/convert-glb":
-            self.send_json(404, {"error": "Unknown endpoint"})
+            self.send_json(404, {"error": "Unknown endpoint."})
             return
 
         length = int(self.headers.get("Content-Length", "0"))
         if not length or length > MAX_UPLOAD:
-            self.send_json(413, {"error": "GLB 文件为空或超过 500 MB"})
+            self.send_json(413, {"error": "GLB file is empty or larger than 500 MB."})
             return
 
         blender = find_blender()
         if not blender:
             self.send_json(
                 503,
-                {"error": "未找到 Blender。请安装 Blender、加入 PATH，或设置 FIELD_STUDIO_BLENDER。"},
+                {"error": "Blender was not found. Install Blender, add it to PATH, or set FIELD_STUDIO_BLENDER."},
             )
             return
 
@@ -74,7 +74,7 @@ class FieldStudioHandler(SimpleHTTPRequestHandler):
             )
             field = form["file"] if "file" in form else None
             if field is None or not getattr(field, "file", None):
-                raise ValueError("请求中没有 GLB 文件")
+                raise ValueError("The request does not contain a GLB file.")
 
             source = job_dir / "source.glb"
             with source.open("wb") as target:
@@ -99,7 +99,7 @@ class FieldStudioHandler(SimpleHTTPRequestHandler):
             manifest_path = job_dir / "manifest.json"
             if completed.returncode != 0 or not manifest_path.exists():
                 detail = (completed.stderr or completed.stdout)[-1200:]
-                raise RuntimeError(f"Blender 转换失败：{detail.strip()}")
+                raise RuntimeError(f"Blender conversion failed: {detail.strip()}")
 
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["frames"] = [
@@ -119,7 +119,7 @@ class FieldStudioHandler(SimpleHTTPRequestHandler):
             self.send_json(200, manifest)
         except subprocess.TimeoutExpired:
             shutil.rmtree(job_dir, ignore_errors=True)
-            self.send_json(504, {"error": "Blender 转换超过 5 分钟"})
+            self.send_json(504, {"error": "Blender conversion exceeded 5 minutes."})
         except Exception as error:
             shutil.rmtree(job_dir, ignore_errors=True)
             self.send_json(500, {"error": str(error)})

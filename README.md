@@ -222,6 +222,16 @@ cd meltmesh
 python server.py
 ```
 
+Or use the helper scripts:
+
+```bash
+./run.sh
+```
+
+```powershell
+.\run.ps1
+```
+
 Open:
 
 ```text

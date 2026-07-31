@@ -1,0 +1,27 @@
+title: "Idea: "
+labels: ["idea"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: What should MeltMesh explore?
+      placeholder: A contact model where glass and metal create anisotropic reflection veins.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Papers, demos, screenshots, films, games, or visual targets.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Geometry
+        - Material
+        - Interaction
+        - Performance
+        - Demo / storytelling
+        - Documentation
