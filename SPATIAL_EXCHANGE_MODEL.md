@@ -369,6 +369,16 @@ Minimum implementation targets:
 - For each group, compute ownership weights and write them into shader uniforms.
 - Render contact bands from source material contrast, not a fixed color.
 
+Current implementation status:
+
+- `domain-router.js` computes a contact graph over analytic and imported objects.
+- Every object carries a `role` and a reciprocal `residue` state.
+- Contact updates both directions in each pair, so all participants change.
+- The inspector exposes role, residue, memory trace, and optical trace.
+- Three.js imported materials receive residue through color/emissive/environment
+  response.
+- WebGL2 analytic SDF primitives receive residue through shader uniforms.
+
 ### Stage B: 3DGS support
 
 - Load Gaussian splat attributes as density/material samples.

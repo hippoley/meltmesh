@@ -80,6 +80,12 @@
           <div class="domain-row"><span data-i18n="optical">Refractive material</span><i id="domain-optical"></i><output id="domain-optical-value">--</output></div>
           <p id="domainSignature" data-i18n="waitingState">Waiting for interaction state</p>
         </section>
+        <section class="exchange-panel" aria-label="Spatial exchange field" data-i18n-aria-label="exchangeField">
+          <header><span data-i18n="exchangeField">Spatial exchange</span><strong id="exchangeRoleValue">--</strong></header>
+          <div class="exchange-row"><span data-i18n="residue">Residue</span><i id="exchangeResidueBar"></i><output id="exchangeResidueValue">--</output></div>
+          <div class="exchange-row"><span data-i18n="memoryTrace">Memory</span><i id="exchangeMemoryBar"></i><output id="exchangeMemoryValue">--</output></div>
+          <div class="exchange-row"><span data-i18n="opticalTrace">Optical</span><i id="exchangeOpticalBar"></i><output id="exchangeOpticalValue">--</output></div>
+        </section>
         <div class="panel-heading"><span data-i18n="geometry">Geometry</span><button id="randomize" class="text-button" data-i18n="random">Random</button></div>
         <div class="preset-group" role="group" aria-label="Shape presets" data-i18n-aria-label="shapePresets">
           <button class="preset active" data-preset="blend" data-i18n="blendPreset">Fuse</button>
@@ -124,9 +130,9 @@
     </section>
   </main>
   <script src="webgpu-renderer.js?v=12"></script>
-  <script src="domain-router.js?v=4"></script>
-  <script type="module" src="three-renderer.js?v=35"></script>
+  <script src="domain-router.js?v=5"></script>
+  <script type="module" src="three-renderer.js?v=36"></script>
   <script src="i18n.js?v=2"></script>
-  <script src="app.js?v=54"></script>
+  <script src="app.js?v=55"></script>
 </body>
 </html>

@@ -305,6 +305,38 @@ if (uInteractionEnabled > 0.5) {
     };
   }
 
+  function collectMaterials(model) {
+    const materials = new Set();
+    model.traverse(object => {
+      if (!object.isMesh || !object.material) return;
+      for (const material of (Array.isArray(object.material) ? object.material : [object.material])) materials.add(material);
+    });
+    return Array.from(materials).map(material => ({
+      material,
+      color: material.color ? material.color.clone() : new THREE.Color(0xffffff),
+      emissive: material.emissive ? material.emissive.clone() : new THREE.Color(0x000000),
+      opacity: Number.isFinite(material.opacity) ? material.opacity : 1,
+      envMapIntensity: Number.isFinite(material.envMapIntensity) ? material.envMapIntensity : 1,
+    }));
+  }
+
+  function applyResidueToModel(entry, object) {
+    const residue = object?.residue;
+    if (!residue || !entry.materialStates) return;
+    const strength = THREE.MathUtils.clamp(residue.strength || 0, 0, 1);
+    const memory = THREE.MathUtils.clamp(residue.memory || 0, 0, 1);
+    const optical = THREE.MathUtils.clamp(residue.optical || 0, 0, 1);
+    const residueColor = new THREE.Color(...(residue.color || [0.72, 0.93, 1]));
+    for (const state of entry.materialStates) {
+      const material = state.material;
+      if (material.color) material.color.copy(state.color).lerp(residueColor, strength * (0.22 + memory * 0.24));
+      if (material.emissive) material.emissive.copy(state.emissive).lerp(residueColor, strength * (0.12 + optical * 0.28));
+      material.envMapIntensity = state.envMapIntensity * (1 + optical * strength * 1.4);
+      if (strength > 0.08 && material.transparent) material.opacity = Math.max(0.28, state.opacity - strength * memory * 0.22);
+      material.needsUpdate = true;
+    }
+  }
+
   function disposeModel() {
     for (const entry of models) entry.model.traverse(object => { if (object.geometry) object.geometry.dispose(); });
     for (const entry of models) root.remove(entry.model);
@@ -348,9 +380,10 @@ if (uInteractionEnabled > 0.5) {
         metalness: materialReport.metalness,
         roughness: materialReport.roughness,
         transparent: materialReport.transparent,
+        sourceColor: sourceColor.toArray(),
       };
       if (index === 0 && state.objects?.mesh) state.objects.mesh.materialReport = state.imported?.[index]?.materialReport;
-      models.push({ model, mixer, index, name: list[index].name, basePosition: model.position.clone(), baseScale: scale, sourceColor, materialReport });
+      models.push({ model, mixer, index, name: list[index].name, basePosition: model.position.clone(), baseScale: scale, sourceColor, materialReport, materialStates: collectMaterials(model) });
       if (mixer) mixers.push(mixer);
     }
     ready = true;
@@ -445,6 +478,7 @@ if (uInteractionEnabled > 0.5) {
       const position = object?.position || [0, 0, 0];
       entry.model.position.set(entry.basePosition.x + position[0], entry.basePosition.y + position[1], entry.basePosition.z + position[2]);
       entry.model.scale.setScalar(entry.baseScale * (object?.scale || 1));
+      applyResidueToModel(entry, object);
     }
     for (const shader of interactionShaders) {
       const sphere = state.objects.sphere, box = state.objects.box;
@@ -476,7 +510,7 @@ if (uInteractionEnabled > 0.5) {
   frame();
   window.unifiedRendererActive = true;
   document.getElementById('viewport').classList.add('unified-renderer');
-  document.getElementById('renderStatus').textContent = 'Three.js · 统一深度 SDF';
+  document.getElementById('renderStatus').textContent = window.meltmeshI18n?.translate?.(window.meltmeshI18n.currentLanguage, 'threeUnified') || 'Three.js unified depth SDF';
   window.dispatchEvent(new Event('unified-renderer-ready'));
   return { loadFile, loadFiles, setVolume, isReady: () => ready, isUnified: () => true };
 };
