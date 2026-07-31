@@ -1,13 +1,15 @@
-﻿<div align="center">
+<div align="center">
 
 # MeltMesh
 
-### A reactive SDF sandbox for material-aware mesh fusion.
+### Reactive SDF material fusion in the browser
 
-Import real GLB assets, push them into contact, and watch the overlap become a
+![MeltMesh hero preview](docs/meltmesh-hero.svg)
+
+Import real GLB assets, push them into contact, and turn the overlap into a
 live mathematical surface: smooth Boolean geometry, phase-field dissolution,
-source-material transfer, and refractive 鈥渞eflection鈥?patterns in one
-depth-aware browser scene.
+source-material transfer, and refractive reflection patterns in one
+depth-aware scene.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-d7ff47.svg)](LICENSE)
 ![Three.js](https://img.shields.io/badge/renderer-Three.js-white.svg)
@@ -15,46 +17,39 @@ depth-aware browser scene.
 ![WebGPU](https://img.shields.io/badge/WebGPU-experimental-f4d35e.svg)
 ![Status](https://img.shields.io/badge/status-research%20prototype-ff6b35.svg)
 
-[Why it exists](#why-it-exists) 路
-[Demo workflow](#demo-workflow) 路
-[Math model](#the-core-model) 路
-[Run locally](#run-locally) 路
-[Roadmap](#roadmap) 路
-[涓枃绠€浠媇(#涓枃绠€浠?
+[Why](#why) · [Demo](#demo-workflow) · [Model](#core-model) ·
+[Architecture](#architecture) · [Run](#run-locally) ·
+[中文](README.zh-CN.md)
 
 </div>
 
-## Why it exists
+## Why
 
 Most browser 3D demos treat imported meshes and procedural SDF objects as
-separate layers: the mesh renders with rasterized PBR, the SDF blob renders in a
-shader, and contact is only a visual overlap.
+separate layers. The mesh renders with rasterized PBR. The SDF blob renders in a
+shader. Contact is only a visual overlap.
 
 MeltMesh explores a different interaction model:
 
 > When two objects touch, the contact itself becomes a new computable material.
 
 The project turns live interaction state into a compact mathematical problem
-signature, then routes the visual response between three domains:
+signature, then routes the response between three domains:
 
-1. **Implicit geometry** 鈥?smooth Boolean fields and mesh-derived SDF volumes.
-2. **Phase-field evolution** 鈥?persistent local contact memory and dissolution fronts.
-3. **Optical material transfer** 鈥?refractive reflection patterns reconstructed from source materials.
+1. **Implicit geometry**: smooth Boolean fields and mesh-derived SDF volumes.
+2. **Phase-field evolution**: persistent local contact memory and dissolution fronts.
+3. **Optical material transfer**: refractive reflection patterns reconstructed from source materials.
 
-The result is a small research workbench for asking: what should a creative 3D
-tool do when imported real assets are allowed to participate in the same field
-as procedural geometry?
-
-## What it can do today
+## What works today
 
 - Import up to **five GLB assets** without replacing earlier imports.
 - Keep each imported asset independently selectable and transformable.
 - Preserve original Three.js PBR meshes, textures, animations, and material response.
-- Convert GLB geometry into a \(64^3\) SDF volume through Blender.
+- Convert GLB geometry into a `64^3` SDF volume through Blender.
 - Bake source color, roughness, metalness, alpha, emission, and transmission into material volumes.
 - Fuse analytic SDF primitives with imported mesh SDFs.
 - Generate contact memory seeds as objects collide and move.
-- Render refractive contact 鈥渞eflection鈥?bands driven by material contrast and phase memory.
+- Render refractive contact bands driven by material contrast and phase memory.
 - Compose imported PBR geometry and generated SDF surfaces through one depth-aware Three.js scene.
 - Fall back to WebGL2; keep an experimental WebGPU path for future compute work.
 
@@ -72,29 +67,29 @@ as procedural geometry?
    - refractive reflection bands,
    - persistent contact memory.
 
-## The core model
+## Core model
 
 MeltMesh is built around a live interaction state:
 
-\[
+```math
 z_t =
 \left[
 p_t,\ d_t,\ v_t,\ \tau_t,\ c_t,\ n_t
 \right]
-\]
+```
 
 where:
 
-- \(p_t\) is object proximity,
-- \(d_t\) is estimated penetration,
-- \(v_t\) is relative motion,
-- \(\tau_t\) is accumulated contact time,
-- \(c_t\) is material contrast,
-- \(n_t\) is the active object count.
+- `p_t` is object proximity,
+- `d_t` is estimated penetration,
+- `v_t` is relative motion,
+- `tau_t` is accumulated contact time,
+- `c_t` is material contrast,
+- `n_t` is the active object count.
 
 The router maps this state into domain weights:
 
-\[
+```math
 \pi_t =
 \operatorname{softmax}
 \begin{bmatrix}
@@ -102,72 +97,72 @@ s_{\mathrm{SDF}}(z_t) \\
 s_{\mathrm{phase}}(z_t) \\
 s_{\mathrm{optical}}(z_t)
 \end{bmatrix}
-\]
+```
 
 Those weights modify the effective solver:
 
-\[
+```math
 \theta_t =
 \pi_{\mathrm{SDF}}\theta_{\mathrm{geometry}}
 + \pi_{\mathrm{phase}}\theta_{\mathrm{dissolution}}
 + \pi_{\mathrm{optical}}\theta_{\mathrm{material}}
-\]
+```
 
 ### Contact geometry
 
-For an analytic primitive field \(A(x)\) and an imported mesh field \(B(x)\),
-the generated contact surface starts from a directional smooth Boolean:
+For an analytic primitive field `A(x)` and an imported mesh field `B(x)`, the
+generated contact surface starts from a directional smooth Boolean:
 
-\[
+```math
 C(A,B) =
 \operatorname{smin}_{k}
 \left(
 \max(A,-B_{\mathrm{front}}),
 B
 \right)
-\]
+```
 
 The imported front is moved by contact memory:
 
-\[
+```math
 B_{\mathrm{front}}(x,t)
 = B(x)
 - r_c\phi(x,t)
 + \eta(x)a_n\phi(x,t)
-\]
+```
 
-where \(\phi\) is a persistent local phase field and \(\eta\) is a structured
-noise field that breaks the front into organic, non-uniform dissolution.
+where `phi` is a persistent local phase field and `eta` is a structured noise
+field that breaks the front into organic, non-uniform dissolution.
 
 ### Material reconstruction
 
 The mixed surface is not assigned a blank material. It samples source material
 fields and reconstructs a contact material:
 
-\[
+```math
 M(x) =
 \frac{\sum_i w_i(x)M_i(x)}
 {\sum_i w_i(x)+\varepsilon}
-\]
+```
 
 The weights depend on SDF ownership, contact memory, optical routing weight, and
 material contrast.
 
 ### Reflection field
 
-The 鈥渞eflection鈥?effect is modeled as a contact-local optical field:
+The reflection effect is modeled as a contact-local optical field:
 
-\[
+```math
 R(x,n,t) =
 K(x,t)\ I(x)\ Q(x,n,t)\ F(n,v)
-\]
+```
 
 with:
 
-- \(K\): contact kernel,
-- \(I\): material impedance, derived from color, metalness, roughness, and transmission differences,
-- \(Q\): quasi-crystal spectral basis,
-- \(F\): Fresnel response.
+- `K`: contact kernel,
+- `I`: material impedance, derived from color, metalness, roughness, and transmission differences,
+- `Q`: quasi-crystal spectral basis,
+- `F`: Fresnel response.
 
 This is why the contact band can show different colors and structures at
 different points instead of becoming a uniform glow.
@@ -212,7 +207,7 @@ Requirements:
 - Chromium-based browser with hardware acceleration
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/hippoley/meltmesh.git
 cd meltmesh
 python server.py
 ```
@@ -256,7 +251,7 @@ REFRACTION_MODEL.md     Contact reflection and material transfer model
 
 MeltMesh is a research prototype, not a production CAD kernel.
 
-- Imported SDF resolution is fixed at \(64^3\).
+- Imported SDF resolution is fixed at `64^3`.
 - Very thin screens, wires, and open meshes can lose detail during voxelization.
 - Multi-import volume rebuilds still run on the CPU.
 - Complex Blender procedural node graphs are approximated unless baked to textures.
@@ -272,20 +267,6 @@ MeltMesh is a research prototype, not a production CAD kernel.
 - Learned or fitted routing policies from interaction traces.
 - Adaptive Dual Contouring export of fused surfaces.
 - Reproducible benchmark scenes and visual regression tests.
-
-## Why this could be interesting
-
-The pitch is intentionally narrow:
-
-> A browser-native sandbox where imported meshes do not just sit on top of SDFs;
-> they enter the same mathematical field and create new contact materials.
-
-That framing gives the project a clear open-source niche:
-
-- creative coding people get a visual sandbox,
-- graphics engineers get SDF/material-volume problems,
-- AI-tooling researchers get a concrete domain-router interface,
-- designers get an interaction metaphor inspired by dissolution, refraction, and copy-through-contact.
 
 ## Originality and attribution
 
@@ -317,10 +298,3 @@ Good first contribution areas:
 
 Please keep visual claims reproducible. If a rendering change improves the
 effect, include the scene, settings, and screenshot.
-
-## 涓枃绠€浠?
-MeltMesh 鏄竴涓祻瑙堝櫒绔笁缁村缓妯″疄楠屾矙鐩樸€傚畠鐨勭洰鏍囦笉鏄鍒讳紶缁?CAD锛?涔熶笉鏄彧鎶?GLB 妯″瀷鍙犲湪 SDF 鑳朵綋涓婏紝鑰屾槸璁╁鍏ユā鍨嬬湡姝ｈ繘鍏ュ悓涓€涓?闅愬紡鍦恒€佹潗璐ㄥ満鍜屾帴瑙︾浉鍦恒€?
-褰撳涓墿浣撴帴瑙︽椂锛岀郴缁熶細鏍规嵁浜や簰鐘舵€佽嚜鍔ㄨ皟鏁翠笁绫绘暟瀛︽ā鍨嬬殑鏉冮噸锛?
-- 闅愬紡鍑犱綍锛氬喅瀹氳瀺鍚堝舰鐘躲€佸竷灏旇竟鐣屽拰杩炵画琛ㄩ潰锛?- 鐩稿満婕斿寲锛氬喅瀹氭憾瑙ｅ墠娌裤€佹帴瑙﹁蹇嗗拰绌洪棿鍙樺寲锛?- 鎶樺皠鏉愯川锛氬喅瀹氫氦鐣屽濡備綍缁ф壙銆佹贩鍚堛€佸鍒舵簮鐗╀綋鏉愯川銆?
-褰撳墠鐗堟湰鏀寔鏈€澶氫簲涓?GLB 璧勪骇鐙珛瀵煎叆銆侀€夋嫨鍜岀Щ鍔紝骞舵妸鍘熷 Three.js
-PBR 缃戞牸涓庣敓鎴愬紡 SDF 琛ㄩ潰鏀惧叆鍚屼竴娣卞害娓叉煋绠＄嚎銆傝繖涓」鐩殑鏍稿績鍒囧叆鐐规槸锛?瀵煎叆鐗╀綋涓嶆槸涓€涓嫭绔嬪浘灞傦紝鑰屾槸鍙互鍙備笌鏁板浜や簰鐨勬潗鏂欏疄浣撱€?
