@@ -1,15 +1,21 @@
 (function () {
   const previous = new Map();
-  const labels = {
-    implicitGeometry: '隐式几何',
-    phaseField: '相场演化',
-    optical: '折射材质',
+  const labelKeys = {
+    implicitGeometry: 'implicit',
+    phaseField: 'phase',
+    optical: 'optical',
   };
+
   let previousTime = performance.now() / 1000;
   let contactAge = 0;
   let lastUiUpdate = 0;
+  let lastModel = null;
 
   const clamp = value => Math.max(0, Math.min(1, value));
+  const translate = (key, params = {}) => {
+    const i18n = window.meltmeshI18n;
+    return i18n && i18n.translate ? i18n.translate(i18n.currentLanguage, key, params) : key;
+  };
   const softmax = values => {
     const peak = Math.max(...values);
     const weights = values.map(value => Math.exp(value - peak));
@@ -22,14 +28,14 @@
     return (object.scale || 1) * 0.72;
   };
 
-  function updateUi(model, time) {
-    if (time - lastUiUpdate < 0.12) return;
+  function updateUi(model, time, force = false) {
+    if (!force && time - lastUiUpdate < 0.12) return;
     lastUiUpdate = time;
     const primary = document.getElementById('domainPrimary');
     const signature = document.getElementById('domainSignature');
     if (!primary || !signature) return;
 
-    primary.textContent = labels[model.primary];
+    primary.textContent = translate(labelKeys[model.primary]);
     for (const [domain, weight] of Object.entries(model.domains)) {
       const bar = document.getElementById(`domain-${domain}`);
       const value = document.getElementById(`domain-${domain}-value`);
@@ -37,7 +43,11 @@
       if (value) value.textContent = `${Math.round(weight * 100)}%`;
     }
     const s = model.signature;
-    signature.textContent = `接近 ${s.proximity.toFixed(2)} · 穿透 ${s.penetration.toFixed(2)} · 速度 ${s.relativeSpeed.toFixed(2)}`;
+    signature.textContent = translate('domainSignatureLive', {
+      proximity: s.proximity.toFixed(2),
+      penetration: s.penetration.toFixed(2),
+      speed: s.relativeSpeed.toFixed(2),
+    });
   }
 
   function update(state, time = performance.now() / 1000) {
@@ -93,15 +103,20 @@
       transmission: clamp(state.transmission * (0.65 + 0.5 * domains.optical)),
     };
     const primary = Object.entries(domains).sort((a, b) => b[1] - a[1])[0][0];
-    state.domainModel = {
+    lastModel = {
       signature: { proximity, penetration, relativeSpeed: speed, contactDuration: contactAge, materialContrast, objectCount: objects.length },
       domains,
       effective,
       primary,
     };
-    updateUi(state.domainModel, time);
-    return state.domainModel;
+    state.domainModel = lastModel;
+    updateUi(lastModel, time);
+    return lastModel;
   }
+
+  window.addEventListener('meltmesh-language-change', () => {
+    if (lastModel) updateUi(lastModel, performance.now() / 1000, true);
+  });
 
   window.mathDomainRouter = { update };
 })();
