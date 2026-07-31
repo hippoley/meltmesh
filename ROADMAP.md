@@ -12,6 +12,18 @@ Make contact between imported 3D objects feel alive:
 > When they touch, the contact region computes a new material instead of drawing
 > a simple overlap.
 
+## Research extension: spatial exchange fields
+
+The next narrative and technical step is documented in
+[SPATIAL_EXCHANGE_MODEL.md](SPATIAL_EXCHANGE_MODEL.md).
+
+This expands MeltMesh from object contact to scene contact:
+
+- remembered spaces and captured spaces become compatible field objects,
+- 3D Gaussian Splatting assets can be approximated as density/material fields,
+- contact groups exchange geometry, material, light response, and memory,
+- every object in the group receives residue, so fusion changes all participants.
+
 ## Milestone 1: first impression
 
 - Add a one-click hosted demo.

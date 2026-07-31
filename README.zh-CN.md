@@ -6,6 +6,8 @@
 
 MeltMesh 是一个浏览器端三维建模实验沙盘。它不是把 GLB 模型简单叠在 SDF 胶体上，而是尝试让导入资产进入同一个隐式几何场、材质场和接触相场。
 
+长期方向是 **空间交换场**：记忆中的场景、现实采集场景、SDF 几何体和 3D Gaussian Splatting 资产可以接触、交换几何/材质/语义痕迹，并在交融组里的每个物体上留下可见残留。
+
 核心想法：
 
 > 当多个物体接触时，接触区本身变成一种新的可计算材料。
@@ -106,6 +108,7 @@ MeltMesh 使用公开图形学技术：SDF、sphere tracing、smooth CSG、相�
 更多说明见：
 
 - [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md)
+- [SPATIAL_EXCHANGE_MODEL.md](SPATIAL_EXCHANGE_MODEL.md)
 - [MODEL_SPECIFICATION.md](MODEL_SPECIFICATION.md)
 - [REFRACTION_MODEL.md](REFRACTION_MODEL.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)

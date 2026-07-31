@@ -11,6 +11,11 @@ live mathematical surface: smooth Boolean geometry, phase-field dissolution,
 source-material transfer, and refractive reflection patterns in one
 depth-aware scene.
 
+The long-term direction is a **spatial exchange field**: memory-like scenes,
+real captured scenes, SDF primitives, and 3D Gaussian Splatting assets can meet,
+exchange material/geometry traces, and leave persistent residue on every object
+in the contact group.
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-d7ff47.svg)](LICENSE)
 ![Three.js](https://img.shields.io/badge/renderer-Three.js-white.svg)
 ![WebGL2](https://img.shields.io/badge/fallback-WebGL2-54c6eb.svg)
@@ -180,6 +185,7 @@ different points instead of becoming a uniform glow.
 More detail:
 
 - [MATHEMATICAL_MODEL.md](MATHEMATICAL_MODEL.md)
+- [SPATIAL_EXCHANGE_MODEL.md](SPATIAL_EXCHANGE_MODEL.md)
 - [MODEL_SPECIFICATION.md](MODEL_SPECIFICATION.md)
 - [REFRACTION_MODEL.md](REFRACTION_MODEL.md)
 
@@ -285,6 +291,7 @@ MeltMesh is a research prototype, not a production CAD kernel.
 - **WebGPU compute** for multi-volume composition.
 - **Sparse brick volumes** for thin imported assets.
 - **Reaction-diffusion material transport** across the contact membrane.
+- **Spatial exchange fields** for memory/real-scene fusion and 3DGS assets.
 - **Fitted routing policies** from interaction traces.
 - **Adaptive Dual Contouring export** of fused surfaces.
 - **Reproducible benchmark scenes** and visual regression tests.
