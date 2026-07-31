@@ -12,6 +12,7 @@ const state = {
   imported:[],
   objects:{sphere:{position:[-0.55,0,0],scale:1},box:{position:[0.5,0.08,0],scale:1},mesh:{position:[0,0,0],scale:1,bounds:[1,1,1]}}
 };
+const t = key => window.meltmeshI18n?.translate?.(window.meltmeshI18n.currentLanguage, key) || key;
 
 const vertexSource = `#version 300 es
 in vec2 position;
@@ -179,6 +180,12 @@ const materialPresets={
   frosted:{roughness:.48,specular:.54,transmission:.62,ior:1.46,color:[.72,.84,.88],swatch:0}
 };
 function syncMaterialControls(){for(const id of ['roughness','specular','transmission','ior']){document.getElementById(id).value=state[id];document.querySelector(`output[for=${id}]`).value=state[id].toFixed(2);}}
+function refreshLocalizedRuntime(){
+  if(document.querySelector('.material-preset.active'))document.getElementById('materialStatus').textContent=t(document.querySelector('.material-preset.active').dataset.material);
+  if(state.selected)selectObject(state.selected);
+  updateMaterialReadout();
+  renderImportedObjectList(state.selected);
+}
 document.querySelectorAll('.material-preset').forEach(button=>button.addEventListener('click',()=>{const preset=materialPresets[button.dataset.material];Object.assign(state,{roughness:preset.roughness,specular:preset.specular,transmission:preset.transmission,ior:preset.ior,color:[...preset.color]});document.querySelectorAll('.material-preset').forEach(item=>item.classList.toggle('active',item===button));document.querySelectorAll('.swatch').forEach((item,index)=>item.classList.toggle('active',index===preset.swatch));document.getElementById('materialStatus').textContent=button.textContent;syncMaterialControls();}));
 document.querySelectorAll('.swatch').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.material-preset').forEach(item=>item.classList.remove('active'));document.getElementById('materialStatus').textContent='自定义染色';}));
 for(const id of ['roughness','specular','transmission','ior'])document.getElementById(id).addEventListener('input',()=>{document.querySelectorAll('.material-preset').forEach(item=>item.classList.remove('active'));document.getElementById('materialStatus').textContent='自定义玻璃';});
@@ -286,6 +293,26 @@ function renderImportedObjectList(selected=state.selected){
   bindSceneItems();
   if(state.objects[selected])selectObject(selected);else if(state.imported.length)selectObject('mesh-0');
 }
+selectObject=function(name){
+  if(!state.objects[name])return;state.selected=name;document.querySelectorAll('[data-object]').forEach(button=>button.classList.toggle('active',button.dataset.object===name));const localizedName=name==='sphere'?t('sphere'):name==='box'?t('box'):(state.objects[name].name||t('importedObject'));document.getElementById('selectedName').textContent=`${localizedName} · ${t('transform')}`;
+  const object=state.objects[name];['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).value=object.position[index].toFixed(2));document.getElementById('objectScale').value=object.scale.toFixed(2);
+  updateMaterialReadout();
+};
+updateMaterialReadout=function(){
+  const report=state.objects[state.selected]?.materialReport || (state.selected==='mesh'?state.imported?.[0]?.materialReport:null);
+  document.getElementById('materialReadoutStatus').textContent=report?t('parsed'):t('chooseGlb');
+  document.getElementById('readoutMaterialCount').textContent=report?String(report.materialCount):'--';
+  document.getElementById('readoutTextureCount').textContent=report?String(report.textureCount):'--';
+  document.getElementById('readoutMetalness').textContent=report?report.metalness.toFixed(2):'--';
+  document.getElementById('readoutRoughness').textContent=report?report.roughness.toFixed(2):'--';
+};
+renderImportedObjectList=function(selected=state.selected){
+  document.getElementById('importedObjects').innerHTML=state.imported.map((item,index)=>`<button class="scene-item" data-object="mesh-${index}"><span class="shape-icon mesh"></span><span><strong>${item.name.replace(/[<>&]/g,'')}</strong><small>GLB · ${t('importedObject')} ${index+1}/5</small></span><span class="visibility">●</span></button>`).join('');
+  document.querySelector('.scene-panel .count').textContent=String(3+state.imported.length);
+  bindSceneItems();
+  if(state.objects[selected])selectObject(selected);else if(state.imported.length)selectObject('mesh-0');
+};
+window.addEventListener('meltmesh-language-change',()=>{if(document.querySelector('.material-preset.active'))document.getElementById('materialStatus').textContent=t(document.querySelector('.material-preset.active').dataset.material);renderImportedObjectList(state.selected);selectObject(state.selected);updateMaterialReadout();});
 ['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)){state.objects[state.selected].position[index]=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}));
 document.getElementById('objectScale').addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)&&value>0){state.objects[state.selected].scale=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}});
 document.getElementById('resetObject').addEventListener('click',()=>{const positions={sphere:[-.55,0,0],box:[.5,.08,0],mesh:[0,0,0]},object=state.objects[state.selected],fallback=positions[state.selected]||[0,0,0],bounds=object?.bounds;state.objects[state.selected]={...object,position:[...fallback],scale:1,...(bounds?{bounds}: {})};state.preset=3;selectObject(state.selected);});
