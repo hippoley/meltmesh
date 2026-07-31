@@ -100,7 +100,7 @@ The router maps this state into domain weights:
 
 ```math
 \pi_t =
-\operatorname{softmax}
+\mathrm{softmax}
 \begin{bmatrix}
 s_{\mathrm{SDF}}(z_t) \\
 s_{\mathrm{phase}}(z_t) \\
@@ -124,7 +124,7 @@ generated contact surface starts from a directional smooth Boolean:
 
 ```math
 C(A,B) =
-\operatorname{smin}_{k}
+\mathrm{smin}_{k}
 \left(
 \max(A,-B_{\mathrm{front}}),
 B

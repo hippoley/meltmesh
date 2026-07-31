@@ -148,7 +148,7 @@ d_{roundbox}
 \[
 \tilde d(\mathbf p)=
 \min_{T\in\mathcal T}
-\operatorname{dist}(\mathbf p,T)
+\mathrm{dist}(\mathbf p,T)
 \]
 
 封闭网格可利用奇偶射线或广义绕数确定符号：
@@ -224,7 +224,7 @@ v_n=(\mathbf v_i-\mathbf v_j)\cdot\mathbf n_{ij}
 \]
 
 \[
-g_v=\operatorname{smoothstep}(v_0,v_1,-v_n)
+g_v=\mathrm{smoothstep}(v_0,v_1,-v_n)
 \]
 
 接近速度越高，初次反应越强；分离时不会继续注入新的相态。
@@ -389,7 +389,7 @@ T\mathcal R(\mathbf q_t)
 
 \[
 \mathbf g'\leftarrow
-\operatorname{project}_{\mathcal G}(\mathbf g')
+\mathrm{project}_{\mathcal G}(\mathbf g')
 \]
 
 其中 \(\mathcal G\) 是合法材质参数域。
@@ -453,7 +453,7 @@ A_Q=\frac12+\frac12Q
 通过非线性重映射形成晶格或裂隙：
 
 \[
-A_{cell}=\operatorname{smoothstep}(a,b,|Q|)
+A_{cell}=\mathrm{smoothstep}(a,b,|Q|)
 \]
 
 \[
@@ -1270,7 +1270,7 @@ d_A'=\max[d_A,-(d_B-r\phi+\mu Q)]
 合成：
 
 \[
-d=\operatorname{smin}_{k(\mathbf p)}(d_A',d_B)
+d=\mathrm{smin}_{k(\mathbf p)}(d_A',d_B)
 \]
 
 材质复制：

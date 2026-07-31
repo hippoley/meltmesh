@@ -33,7 +33,7 @@ p_t,\ d_t,\ v_t,\ \tau_t,\ c_t,\ n_t
 
 ```math
 \pi_t =
-\operatorname{softmax}
+\mathrm{softmax}
 \begin{bmatrix}
 s_{\mathrm{SDF}}(z_t) \\
 s_{\mathrm{phase}}(z_t) \\

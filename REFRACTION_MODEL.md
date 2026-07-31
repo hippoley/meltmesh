@@ -282,7 +282,7 @@ d_i
 \[
 d_{final}
 =
-\operatorname{softmin}_i
+\mathrm{softmin}_i
 \left(
 d_i',k_i(\mathbf p)
 \right)
@@ -297,7 +297,7 @@ d_i',k_i(\mathbf p)
 \[
 k_i(\mathbf p)
 \le
-c\,\operatorname{thickness}_i(\mathbf p)
+c\,\mathrm{thickness}_i(\mathbf p)
 \]
 
 ## 9. 显示模型

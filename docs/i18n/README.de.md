@@ -33,7 +33,7 @@ Der Router gewichtet implizite Geometrie, Phasenfeld und optisches Material.
 
 ```math
 \pi_t =
-\operatorname{softmax}
+\mathrm{softmax}
 \begin{bmatrix}
 s_{\mathrm{SDF}}(z_t) \\
 s_{\mathrm{phase}}(z_t) \\

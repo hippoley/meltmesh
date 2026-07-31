@@ -33,7 +33,7 @@ El router asigna pesos a tres dominios: geometría implícita, campo de fase y m
 
 ```math
 \pi_t =
-\operatorname{softmax}
+\mathrm{softmax}
 \begin{bmatrix}
 s_{\mathrm{SDF}}(z_t) \\
 s_{\mathrm{phase}}(z_t) \\

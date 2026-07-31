@@ -82,7 +82,7 @@ W(\mathbf x,t)=\sum_{r=1}^{6}w_r\cos(\omega_r\mathbf k_r\cdot u+\phi_r t)
 其中方向 (\mathbf k_r) 使用黄金角分布，使图案没有明显的重复网格。溶解阈值为：
 
 \[
-\Theta(\mathbf x,t)=\operatorname{smoothstep}\left(-1,1,
+\Theta(\mathbf x,t)=\mathrm{smoothstep}\left(-1,1,
 \frac{W(\mathbf x,t)+\lambda_Q Q(\mathbf x)-\lambda_n|u\cdot n|}{\sigma_d}\right)
 \]
 
@@ -165,7 +165,7 @@ G(\mathbf x)=Q(\mathbf x)\exp(-|n\cdot u|/\sigma_r)
 离散更新：
 
 \[
-M_{t+\Delta t}=\operatorname{clamp}\left(M_t+\Delta t[\lambda_{on}Q(1-M_t)-\lambda_{off}(1-Q)M_t],0,1\right)
+M_{t+\Delta t}=\mathrm{clamp}\left(M_t+\Delta t[\lambda_{on}Q(1-M_t)-\lambda_{off}(1-Q)M_t],0,1\right)
 \]
 
 `M` 控制溶解前沿、材质反射和复制场的强度。这样物体分离时效果会逐渐恢复，而不是瞬间跳回原材质。

@@ -43,11 +43,11 @@ d_{box}=\min(\max(q_x,q_y,q_z),0)+\|\max(\mathbf q,0)\|-r
 解析几何内部先使用多项式 smooth-min 组合：
 
 \[
-h=\operatorname{clamp}\left(\frac12+\frac{b-a}{2k},0,1\right)
+h=\mathrm{clamp}\left(\frac12+\frac{b-a}{2k},0,1\right)
 \]
 
 \[
-\operatorname{smin}(a,b,k)=\operatorname{mix}(b,a,h)-kh(1-h)
+\mathrm{smin}(a,b,k)=\mathrm{mix}(b,a,h)-kh(1-h)
 \]
 
 ### 2.2 导入网格
@@ -61,7 +61,7 @@ GLB 网格在 Blender 转换阶段被采样成三维距离体 \(d_B\)。当前�
 普通对称平滑并集只能把两个物体连接起来：
 
 \[
-d=\operatorname{smin}(d_A,d_B,k)
+d=\mathrm{smin}(d_A,d_B,k)
 \]
 
 它无法表达谁溶解谁。本项目先围绕导入模型建立吸收前沿：
@@ -85,14 +85,14 @@ d_A'(\mathbf p)=\max(d_A(\mathbf p),-d_C(\mathbf p,t))
 
 \[
 d_{final}(\mathbf p)=
-\operatorname{smin}_{k(\mathbf p)}(d_A'(\mathbf p),d_B(\mathbf p))
+\mathrm{smin}_{k(\mathbf p)}(d_A'(\mathbf p),d_B(\mathbf p))
 \]
 
 局部平滑尺度定义为：
 
 \[
 k(\mathbf p)=
-\operatorname{clamp}
+\mathrm{clamp}
 \left(
 2.4|d_B(\mathbf p)|+0.1k_0,
 0.06k_0,

@@ -33,7 +33,7 @@ Le routeur attribue des poids aux domaines SDF, champ de phase et matériau opti
 
 ```math
 \pi_t =
-\operatorname{softmax}
+\mathrm{softmax}
 \begin{bmatrix}
 s_{\mathrm{SDF}}(z_t) \\
 s_{\mathrm{phase}}(z_t) \\
