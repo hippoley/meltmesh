@@ -1,5 +1,9 @@
 # MeltMesh 中文简介
 
+[English](README.md) · 简体中文 · [日本語](docs/i18n/README.ja.md) · [한국어](docs/i18n/README.ko.md) · [Español](docs/i18n/README.es.md) · [Français](docs/i18n/README.fr.md) · [Deutsch](docs/i18n/README.de.md) · [Português](docs/i18n/README.pt-BR.md)
+
+![MeltMesh 预览图](docs/meltmesh-hero.svg)
+
 MeltMesh 是一个浏览器端三维建模实验沙盘。
 
 它的目标不是复刻传统 CAD，也不是只把 GLB 模型叠在 SDF 胶体上，而是让导入模型真正进入同一个隐式场、材质场和接触相场。

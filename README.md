@@ -18,8 +18,17 @@ depth-aware scene.
 ![Status](https://img.shields.io/badge/status-research%20prototype-ff6b35.svg)
 
 [Why](#why) · [Demo](#demo-workflow) · [Model](#core-model) ·
-[Architecture](#architecture) · [Run](#run-locally) ·
-[中文](README.zh-CN.md)
+[Architecture](#architecture) · [Run](#run-locally)
+
+Languages:
+[English](README.md) ·
+[简体中文](README.zh-CN.md) ·
+[日本語](docs/i18n/README.ja.md) ·
+[한국어](docs/i18n/README.ko.md) ·
+[Español](docs/i18n/README.es.md) ·
+[Français](docs/i18n/README.fr.md) ·
+[Deutsch](docs/i18n/README.de.md) ·
+[Português](docs/i18n/README.pt-BR.md)
 
 </div>
 
