@@ -12,10 +12,11 @@ const state = {
   imported:[],
   objects:{
     sphere:{position:[-0.55,0,0],scale:1,role:'memory',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.72,0.93,1]}},
-    box:{position:[0.5,0.08,0],scale:1,visible:false,role:'hybrid',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.1,0.95,0.82]}},
+    box:{position:[0.5,0.08,0],scale:1,visible:true,role:'hybrid',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.1,0.95,0.82]}},
     mesh:{position:[0,0,0],scale:1,bounds:[1,1,1],role:'real',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.72,0.93,1]}}
   }
 };
+window.state = state;
 const t = key => window.meltmeshI18n?.translate?.(window.meltmeshI18n.currentLanguage, key) || key;
 const tr = (key, params = {}) => window.meltmeshI18n?.translate?.(window.meltmeshI18n.currentLanguage, key, params) || key;
 
@@ -205,9 +206,15 @@ document.querySelectorAll('.preset').forEach(button=>button.addEventListener('cl
 document.getElementById('randomize').addEventListener('click',()=>{state.blend=.12+Math.random()*.85;state.spacing=.45+Math.random()*1.45;state.radius=.58+Math.random()*.68;state.boxSize=.48+Math.random()*.62;['blend','spacing','radius','boxSize'].forEach(id=>{document.getElementById(id).value=state[id];document.querySelector(`output[for=${id}]`).value=state[id].toFixed(2);});});
 document.getElementById('resetView').addEventListener('click',()=>Object.assign(state,{yaw:-.55,pitch:.25,distance:6.2}));
 let dragging=false,lastX=0,lastY=0;
-interactionSurface.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;interactionSurface.setPointerCapture(e.pointerId);});
-interactionSurface.addEventListener('pointermove',e=>{if(!dragging)return;const dx=e.clientX-lastX,dy=e.clientY-lastY;if(state.mode==='move'){const object=state.objects[state.selected],speed=state.distance*.0018;object.position[0]+=dx*Math.cos(state.yaw)*speed;object.position[2]-=dx*Math.sin(state.yaw)*speed;object.position[1]-=dy*speed;state.preset=3;selectObject(state.selected);}else{state.yaw-=dx*.008;state.pitch=Math.max(-1.25,Math.min(1.25,state.pitch+dy*.008));}lastX=e.clientX;lastY=e.clientY;});
-interactionSurface.addEventListener('pointerup',()=>{dragging=false;scheduleVolumeRebuild();}); interactionSurface.addEventListener('pointercancel',()=>dragging=false);
+function selectedObject(){return state.objects[state.selected]||state.imported.find(item=>item.id===state.selected)||state.objects.sphere;}
+function syncTransformPanel(object=selectedObject()){
+  if(!object)return;
+  ['tx','ty','tz'].forEach((id,index)=>{const input=document.getElementById(id);if(input)input.value=Number(object.position?.[index]||0).toFixed(2);});
+  const scaleInput=document.getElementById('objectScale');if(scaleInput)scaleInput.value=Number(object.scale||1).toFixed(2);
+}
+interactionSurface.addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();dragging=true;lastX=e.clientX;lastY=e.clientY;interactionSurface.setPointerCapture?.(e.pointerId);});
+interactionSurface.addEventListener('pointermove',e=>{if(!dragging)return;e.preventDefault();const dx=e.clientX-lastX,dy=e.clientY-lastY;if(state.mode==='move'){const object=selectedObject();if(object?.position){const speed=state.distance*.0018;object.position[0]+=dx*Math.cos(state.yaw)*speed;object.position[2]-=dx*Math.sin(state.yaw)*speed;object.position[1]-=dy*speed;state.preset=3;syncTransformPanel(object);document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}else{state.yaw-=dx*.008;state.pitch=Math.max(-1.25,Math.min(1.25,state.pitch+dy*.008));}lastX=e.clientX;lastY=e.clientY;});
+interactionSurface.addEventListener('pointerup',e=>{dragging=false;interactionSurface.releasePointerCapture?.(e.pointerId);scheduleVolumeRebuild();}); interactionSurface.addEventListener('pointercancel',e=>{dragging=false;interactionSurface.releasePointerCapture?.(e.pointerId);});
 interactionSurface.addEventListener('wheel',e=>{e.preventDefault();state.distance=Math.max(3.3,Math.min(11,state.distance+e.deltaY*.006));},{passive:false});
 
 const meshGl=meshCanvas.getContext('webgl2',{alpha:true,antialias:true,premultipliedAlpha:false});
@@ -283,6 +290,29 @@ let toastTimer;
 function showToast(message,isError=false){const toast=document.getElementById('toast');toast.textContent=message;toast.style.borderColor=isError?'#ff654f':'#59613c';toast.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.hidden=true,3200);}
 function updateTimeline(){const slider=document.getElementById('frameSlider');slider.value=sequenceFrame;document.getElementById('frameLabel').textContent=`${sequenceFrame+1} / ${meshFrames.length}`;}
 const objectNames={sphere:'sphere',box:'box',mesh:'importedObject'};
+const sampleAssetGroup=[
+  {name:'Glossy Plastic',file:'sample-models/PlasticSphere.glb'},
+  {name:'Polished Metal',file:'sample-models/PolishedMetalTorus.glb'},
+  {name:'Walnut Wood',file:'sample-models/WalnutWoodBlock.glb'},
+  {name:'Glazed Porcelain',file:'sample-models/PorcelainVase.glb'},
+  {name:'Brushed Steel',file:'sample-models/BrushedSteelCone.glb'}
+];
+async function loadSampleAssets(){
+  const files=[],missing=[];
+  for(const asset of sampleAssetGroup){
+    try{
+      const response=await fetch(asset.file);
+      if(!response.ok){missing.push(asset.name);continue;}
+      files.push(new File([await response.blob()],`${asset.name}.glb`,{type:'model/gltf-binary'}));
+    }catch{missing.push(asset.name);}
+  }
+  if(!files.length){showToast(`Sample assets unavailable: ${missing.join(', ')}`,true);return;}
+  window.__meltmeshImportedFiles=[];
+  state.imported=[];
+  for(const key of Object.keys(state.objects))if(key.startsWith('mesh-'))delete state.objects[key];
+  await importGlbs(files);
+  showToast(`Loaded ${files.length} material samples`);
+}
 function selectObject(name){
   if(!state.objects[name])return;state.selected=name;document.querySelectorAll('[data-object]').forEach(button=>button.classList.toggle('active',button.dataset.object===name));document.getElementById('selectedName').textContent=`${t(objectNames[name])||state.objects[name].name||t('importedObject')} · ${t('transform')}`;
   const object=state.objects[name];['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).value=object.position[index].toFixed(2));document.getElementById('objectScale').value=object.scale.toFixed(2);
@@ -299,7 +329,7 @@ function updateMaterialReadout(){
 function bindSceneItems(){document.querySelectorAll('[data-object]').forEach(button=>{button.onclick=()=>selectObject(button.dataset.object);});}
 function renderImportedObjectList(selected=state.selected){
   document.getElementById('importedObjects').innerHTML=state.imported.map((item,index)=>`<button class="scene-item" data-object="mesh-${index}"><span class="shape-icon mesh"></span><span><strong>${item.name.replace(/[<>&]/g,'')}</strong><small>GLB · ${t('importedObject')} ${index+1}/5</small></span><span class="visibility">●</span></button>`).join('');
-  document.querySelector('.scene-panel .count').textContent=String(3+state.imported.length);
+  document.querySelector('.scene-panel .count').textContent=String(4+state.imported.length);
   bindSceneItems();
   if(state.objects[selected])selectObject(selected);else if(state.imported.length)selectObject('mesh-0');
 }
@@ -318,16 +348,16 @@ updateMaterialReadout=function(){
 };
 renderImportedObjectList=function(selected=state.selected){
   document.getElementById('importedObjects').innerHTML=state.imported.map((item,index)=>`<button class="scene-item" data-object="mesh-${index}"><span class="shape-icon mesh"></span><span><strong>${item.name.replace(/[<>&]/g,'')}</strong><small>GLB · ${t('importedObject')} ${index+1}/5</small></span><span class="visibility">●</span></button>`).join('');
-  document.querySelector('.scene-panel .count').textContent=String(3+state.imported.length);
+  document.querySelector('.scene-panel .count').textContent=String(4+state.imported.length);
   bindSceneItems();
   if(state.objects[selected])selectObject(selected);else if(state.imported.length)selectObject('mesh-0');
 };
 window.addEventListener('meltmesh-language-change',()=>{if(document.querySelector('.material-preset.active'))document.getElementById('materialStatus').textContent=t(document.querySelector('.material-preset.active').dataset.material);renderImportedObjectList(state.selected);selectObject(state.selected);updateMaterialReadout();});
-['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)){state.objects[state.selected].position[index]=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}));
-document.getElementById('objectScale').addEventListener('input',event=>{const value=Number(event.target.value);if(Number.isFinite(value)&&value>0){state.objects[state.selected].scale=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}});
-document.getElementById('resetObject').addEventListener('click',()=>{const positions={sphere:[-.55,0,0],box:[.5,.08,0],mesh:[0,0,0]},object=state.objects[state.selected],fallback=positions[state.selected]||[0,0,0],bounds=object?.bounds;state.objects[state.selected]={...object,position:[...fallback],scale:1,...(bounds?{bounds}: {})};state.preset=3;selectObject(state.selected);});
+['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).addEventListener('input',event=>{const value=Number(event.target.value),object=selectedObject();if(Number.isFinite(value)&&object?.position){object.position[index]=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}));
+document.getElementById('objectScale').addEventListener('input',event=>{const value=Number(event.target.value),object=selectedObject();if(Number.isFinite(value)&&value>0&&object){object.scale=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}});
+document.getElementById('resetObject').addEventListener('click',()=>{const positions={sphere:[-.55,0,0],box:[.5,.08,0],mesh:[0,0,0]},object=selectedObject(),fallback=positions[state.selected]||[0,0,0],bounds=object?.bounds;if(!object)return;object.position=[...fallback];object.scale=1;if(bounds)object.bounds=bounds;state.preset=3;selectObject(state.selected);});
 document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>{state.mode=button.dataset.mode;document.querySelectorAll('[data-mode]').forEach(item=>item.classList.toggle('active',item===button));canvas.style.cursor=state.mode==='move'?'move':'grab';}));
-function setFusionMode(enabled){state.meshFusion=enabled;viewport.classList.toggle('fusion-active',enabled);}
+function setFusionMode(enabled){state.meshFusion=enabled;interactionSurface.classList.toggle('fusion-active',enabled);}
 document.getElementById('meshFusion').addEventListener('change',event=>setFusionMode(event.target.checked));
 document.getElementById('contactDebug').addEventListener('change',event=>{state.contactDebug=event.target.checked;showToast(t(state.contactDebug?'contactDebugOn':'contactDebugOff'));});
 bindSceneItems();
@@ -380,6 +410,7 @@ async function importGlbs(files){
 }
 const input=document.getElementById('fileInput'),viewport=document.getElementById('viewport'),dropHint=document.getElementById('dropHint');
 document.getElementById('importButton').addEventListener('click',()=>input.click());input.addEventListener('change',()=>{if(input.files.length)importFiles(input.files);input.value='';});
+document.getElementById('loadSamplesButton')?.addEventListener('click',()=>loadSampleAssets());
 document.getElementById('playSequence').addEventListener('click',()=>{sequencePlaying=!sequencePlaying;if(sequencePlaying)sequenceStart=performance.now()-sequenceFrame/(Number(document.getElementById('sequenceFps').value)||24)*1000;document.getElementById('playSequence').textContent=sequencePlaying?'Ⅱ':'▶';});
 document.getElementById('frameSlider').addEventListener('input',e=>{sequencePlaying=false;sequenceFrame=Number(e.target.value);document.getElementById('playSequence').textContent='▶';updateTimeline();});
 viewport.addEventListener('dragover',e=>{e.preventDefault();dropHint.hidden=false;});viewport.addEventListener('dragleave',e=>{if(!viewport.contains(e.relatedTarget))dropHint.hidden=true;});viewport.addEventListener('drop',e=>{e.preventDefault();dropHint.hidden=true;if(e.dataTransfer.files.length)importFiles(e.dataTransfer.files);});

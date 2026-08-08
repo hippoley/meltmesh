@@ -85,6 +85,124 @@ function createGround() {
   return ground;
 }
 
+const proceduralPbrCache = new Map();
+function canvasPbrTexture(key, painter, repeatX = 1, repeatY = 1) {
+  const cacheKey = `${key}:${repeatX}:${repeatY}`;
+  if (proceduralPbrCache.has(cacheKey)) return proceduralPbrCache.get(cacheKey);
+  const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 1024;
+  const context = canvas.getContext('2d');
+  painter(context, canvas.width, canvas.height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+  texture.encoding = THREE.sRGBEncoding;
+  texture.anisotropy = 8;
+  proceduralPbrCache.set(cacheKey, texture);
+  return texture;
+}
+function linearDataTexture(key, painter, repeatX = 1, repeatY = 1) {
+  const texture = canvasPbrTexture(key, painter, repeatX, repeatY).clone();
+  texture.encoding = THREE.LinearEncoding;
+  texture.needsUpdate = true;
+  return texture;
+}
+function paintWood(ctx, w, h) {
+  const gradient = ctx.createLinearGradient(0, 0, w, h);
+  gradient.addColorStop(0, '#5f3419'); gradient.addColorStop(.45, '#b06a31'); gradient.addColorStop(1, '#3d2112');
+  ctx.fillStyle = gradient; ctx.fillRect(0, 0, w, h);
+  for (let y = -h; y < h * 2; y += 18) {
+    const offset = Math.sin(y * .017) * 42 + Math.sin(y * .051) * 12;
+    ctx.strokeStyle = `rgba(${70 + (y % 40)},${35 + (y % 30)},18,.34)`;
+    ctx.lineWidth = 3 + Math.abs(Math.sin(y * .03)) * 9;
+    ctx.beginPath();
+    for (let x = -80; x <= w + 80; x += 32) {
+      const yy = y + Math.sin(x * .018 + y * .012) * 20 + offset;
+      if (x === -80) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
+  for (let i = 0; i < 34; i++) {
+    const x = Math.random() * w, y = Math.random() * h, r = 18 + Math.random() * 45;
+    const knot = ctx.createRadialGradient(x, y, 3, x, y, r);
+    knot.addColorStop(0, 'rgba(40,18,6,.65)'); knot.addColorStop(.42, 'rgba(115,52,18,.25)'); knot.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = knot; ctx.beginPath(); ctx.ellipse(x, y, r * 1.55, r * .55, Math.random() * Math.PI, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function paintBrushLines(ctx, w, h, base = '#b9bec1') {
+  ctx.fillStyle = base; ctx.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y++) {
+    const value = 165 + Math.floor(Math.sin(y * .23) * 18 + Math.random() * 24);
+    ctx.fillStyle = `rgba(${value},${value + 3},${value + 6},.34)`;
+    ctx.fillRect(0, y, w, 1);
+  }
+  for (let i = 0; i < 120; i++) {
+    ctx.strokeStyle = `rgba(255,255,255,${0.04 + Math.random() * .08})`;
+    ctx.lineWidth = 1;
+    const y = Math.random() * h; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y + Math.sin(i) * 18); ctx.stroke();
+  }
+}
+function paintCeramic(ctx, w, h) {
+  const gradient = ctx.createRadialGradient(w * .35, h * .25, 5, w * .5, h * .5, w * .74);
+  gradient.addColorStop(0, '#fffaf0'); gradient.addColorStop(.52, '#f5e7d2'); gradient.addColorStop(1, '#dcc6a9');
+  ctx.fillStyle = gradient; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(128,90,48,.10)'; ctx.lineWidth = 1.4;
+  for (let i = 0; i < 80; i++) {
+    let x = Math.random() * w, y = Math.random() * h;
+    ctx.beginPath(); ctx.moveTo(x, y);
+    for (let j = 0; j < 7; j++) { x += (Math.random() - .5) * 54; y += (Math.random() - .5) * 54; ctx.lineTo(x, y); }
+    ctx.stroke();
+  }
+}
+function applyTextureSet(material, { map, roughnessMap, bumpMap, metalnessMap, bumpScale = 0.04 }) {
+  if (map) material.map = map;
+  if (roughnessMap) material.roughnessMap = roughnessMap;
+  if (metalnessMap) material.metalnessMap = metalnessMap;
+  if (bumpMap) { material.bumpMap = bumpMap; material.bumpScale = bumpScale; }
+}
+function tuneRecognizableSampleMaterial(material) {
+  const name = String(material.name || '').toLowerCase();
+  if (!name) return;
+  const setColor = hex => material.color?.set(hex);
+  if (name.includes('plastic')) {
+    setColor(0xff2858);
+    material.metalness = 0.0;
+    material.roughness = 0.14;
+    material.envMapIntensity = 1.65;
+    if ('clearcoat' in material) material.clearcoat = 0.75;
+    if ('clearcoatRoughness' in material) material.clearcoatRoughness = 0.08;
+    applyTextureSet(material, { bumpMap: linearDataTexture('plastic-orange-peel', (ctx,w,h)=>{ctx.fillStyle='#808080';ctx.fillRect(0,0,w,h);for(let i=0;i<9000;i++){const v=118+Math.random()*34;ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(Math.random()*w,Math.random()*h,2,2);}}, 4, 4), bumpScale: 0.012 });
+  } else if (name.includes('polished metal')) {
+    setColor(0xffb14a);
+    material.metalness = 1.0;
+    material.roughness = 0.055;
+    material.envMapIntensity = 2.55;
+    applyTextureSet(material, { roughnessMap: linearDataTexture('polished-micro-scratches', (ctx,w,h)=>paintBrushLines(ctx,w,h,'#5f6264'), 1, 5), bumpMap: linearDataTexture('polished-bump-scratches', (ctx,w,h)=>paintBrushLines(ctx,w,h,'#808080'), 1, 8), bumpScale: 0.018 });
+  } else if (name.includes('walnut') || name.includes('wood')) {
+    setColor(0x8a4c22);
+    material.metalness = 0.0;
+    material.roughness = 0.62;
+    material.envMapIntensity = 0.72;
+    if ('clearcoat' in material) material.clearcoat = 0.08;
+    applyTextureSet(material, { map: canvasPbrTexture('walnut-basecolor', paintWood, 2, 2), roughnessMap: linearDataTexture('walnut-roughness', (ctx,w,h)=>{paintWood(ctx,w,h);ctx.globalCompositeOperation='color';ctx.fillStyle='#8f8f8f';ctx.fillRect(0,0,w,h);}, 2, 2), bumpMap: linearDataTexture('walnut-bump', paintWood, 2, 2), bumpScale: 0.055 });
+  } else if (name.includes('porcelain')) {
+    setColor(0xfff2de);
+    material.metalness = 0.0;
+    material.roughness = 0.16;
+    material.envMapIntensity = 1.85;
+    if ('clearcoat' in material) material.clearcoat = 0.86;
+    if ('clearcoatRoughness' in material) material.clearcoatRoughness = 0.045;
+    applyTextureSet(material, { map: canvasPbrTexture('porcelain-glaze', paintCeramic, 1, 1), roughnessMap: linearDataTexture('porcelain-roughness', paintCeramic, 1, 1), bumpMap: linearDataTexture('porcelain-crazing-bump', paintCeramic, 1, 1), bumpScale: 0.018 });
+  } else if (name.includes('steel')) {
+    setColor(0xb8bdc0);
+    material.metalness = 1.0;
+    material.roughness = 0.42;
+    material.envMapIntensity = 2.05;
+    if ('clearcoat' in material) material.clearcoat = 0.0;
+    applyTextureSet(material, { roughnessMap: linearDataTexture('brushed-steel-roughness', (ctx,w,h)=>paintBrushLines(ctx,w,h,'#9ca2a5'), 1, 12), bumpMap: linearDataTexture('brushed-steel-bump', (ctx,w,h)=>paintBrushLines(ctx,w,h,'#808080'), 1, 16), bumpScale: 0.026 });
+  }
+  material.needsUpdate = true;
+}
+
 window.createThreeRenderer = async function createThreeRenderer(canvas, getState) {
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
@@ -338,6 +456,12 @@ if (uInteractionEnabled > 0.5) {
       material.needsUpdate = true;
     }
   }
+  function addWeightedColor(target, source, weight) {
+    target.r += source.r * weight;
+    target.g += source.g * weight;
+    target.b += source.b * weight;
+    return target;
+  }
 
   function disposeModel() {
     for (const entry of models) entry.model.traverse(object => { if (object.geometry) object.geometry.dispose(); });
@@ -365,6 +489,7 @@ if (uInteractionEnabled > 0.5) {
         for (const material of materials) {
           installContactDissolve(material);
           material.envMapIntensity = 1.25;
+          tuneRecognizableSampleMaterial(material);
           if (material.transparent) material.depthWrite = false;
           material.needsUpdate = true;
         }
@@ -495,17 +620,73 @@ if (uInteractionEnabled > 0.5) {
       shader.uniforms.uDomainPhase.value = state.domainModel?.domains?.phaseField ?? 0.33;
       shader.uniforms.uDomainOptical.value = state.domainModel?.domains?.optical ?? 0.33;
       shader.uniforms.uContactDebug.value = state.contactDebug ? 1 : 0;
-      shader.uniforms.uReactionColor.value.setRGB(state.color[0], state.color[1], state.color[2]).lerp(new THREE.Color(0x8dffd0), 0.42);
       const imported = state.imported || [];
+      const exchangeStates = imported.map(() => ({
+        strength: 0,
+        memory: 0,
+        optical: 0,
+        geometry: 0,
+        color: new THREE.Color(0, 0, 0),
+        weight: 0,
+      }));
       let contact = 0, closestPair = null, closestDistance = Infinity;
       for (let i = 0; i < imported.length; i++) for (let j = i + 1; j < imported.length; j++) {
         const a = imported[i], b = imported[j];
-        const distance = Math.hypot(a.position[0] - b.position[0], a.position[1] - b.position[1], a.position[2] - b.position[2]);
-        contact = Math.max(contact, THREE.MathUtils.clamp(1 - distance / Math.max(state.blend * 2.4, 0.2), 0, 1));
-        if(distance < closestDistance){closestDistance=distance;closestPair=[i,j];}
+        const radiusA = Math.max(0.12, Math.hypot(...(a.bounds || [1, 1, 1])) * 0.5 * (a.scale || 1));
+        const radiusB = Math.max(0.12, Math.hypot(...(b.bounds || [1, 1, 1])) * 0.5 * (b.scale || 1));
+        const dx = b.position[0] - a.position[0], dy = b.position[1] - a.position[1], dz = b.position[2] - a.position[2];
+        const centerDistance = Math.hypot(dx, dy, dz) || 1e-6;
+        const surfaceDistance = centerDistance - radiusA - radiusB;
+        const kernel = THREE.MathUtils.clamp(1 - surfaceDistance / Math.max(state.blend * 1.7, 0.12), 0, 1);
+        contact = Math.max(contact, kernel);
+        if (kernel > 0) {
+          const colorA = models[i]?.sourceColor || new THREE.Color().setRGB(0.72, 0.93, 1);
+          const colorB = models[j]?.sourceColor || new THREE.Color().setRGB(0.72, 0.93, 1);
+          exchangeStates[i].strength += kernel * 0.5;
+          exchangeStates[j].strength += kernel * 0.5;
+          exchangeStates[i].memory = Math.max(exchangeStates[i].memory, kernel);
+          exchangeStates[j].memory = Math.max(exchangeStates[j].memory, kernel);
+          exchangeStates[i].optical += kernel * (0.28 + (models[j]?.materialReport?.roughness ?? 0.35) * 0.35);
+          exchangeStates[j].optical += kernel * (0.28 + (models[i]?.materialReport?.roughness ?? 0.35) * 0.35);
+          exchangeStates[i].geometry = Math.max(exchangeStates[i].geometry, kernel);
+          exchangeStates[j].geometry = Math.max(exchangeStates[j].geometry, kernel);
+          addWeightedColor(exchangeStates[i].color, colorB, kernel);
+          addWeightedColor(exchangeStates[j].color, colorA, kernel);
+          exchangeStates[i].weight += kernel;
+          exchangeStates[j].weight += kernel;
+        }
+        if (surfaceDistance < closestDistance){closestDistance=surfaceDistance;closestPair=[i,j];}
       }
+      const avgReaction = new THREE.Color(0x8dffd0);
+      if (imported.length) {
+        const accum = new THREE.Color(0, 0, 0);
+        let accumWeight = 0;
+        for (let index = 0; index < imported.length; index++) {
+          const source = models[index]?.sourceColor;
+          if (!source) continue;
+          const weight = Math.max(0.15, exchangeStates[index].weight);
+          addWeightedColor(accum, source, weight);
+          accumWeight += weight;
+        }
+        if (accumWeight > 0) avgReaction.copy(accum.multiplyScalar(1 / accumWeight));
+      }
+      shader.uniforms.uReactionColor.value.copy(avgReaction).lerp(new THREE.Color(0x8dffd0), 0.22);
       shader.uniforms.uImportedContact.value = contact;
       if(closestPair){const [i,j]=closestPair,a=imported[i],b=imported[j],ca=models[i]?.sourceColor,cb=models[j]?.sourceColor;shader.uniforms.uImportedContactCenter.value.set((a.position[0]+b.position[0])*.5,(a.position[1]+b.position[1])*.5,(a.position[2]+b.position[2])*.5);shader.uniforms.uImportedContactRadius.value=Math.max(state.blend*1.6,.18);if(ca&&cb)shader.uniforms.uReactionColor.value.copy(ca).lerp(cb,.5);}
+      for (let index = 0; index < imported.length; index++) {
+        const stateItem = imported[index];
+        const exchange = exchangeStates[index];
+        if (!stateItem) continue;
+        const mixWeight = Math.min(1, exchange.weight / Math.max(1, imported.length - 1));
+        const averagedColor = exchange.weight > 0 ? exchange.color.multiplyScalar(1 / exchange.weight) : (models[index]?.sourceColor || new THREE.Color(0.72, 0.93, 1));
+        stateItem.residue = {
+          strength: THREE.MathUtils.clamp(exchange.strength * 0.9, 0, 1),
+          memory: THREE.MathUtils.clamp(exchange.memory, 0, 1),
+          optical: THREE.MathUtils.clamp(0.12 + mixWeight * 0.88, 0, 1),
+          geometry: THREE.MathUtils.clamp(exchange.geometry, 0, 1),
+          color: averagedColor.toArray(),
+        };
+      }
     }
     for (const mixer of mixers) mixer.update(delta);
     renderer.setRenderTarget(sceneTarget);renderer.clear(true,true,true);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.clear(true,true,true);renderer.render(sdfScene,sdfCamera);
