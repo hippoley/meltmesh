@@ -22,18 +22,19 @@ in the contact group.
 ![WebGPU](https://img.shields.io/badge/WebGPU-experimental-f4d35e.svg)
 ![Status](https://img.shields.io/badge/status-research%20prototype-ff6b35.svg)
 
-[Why](#why) · [Demo](#demo-workflow) · [Model](#core-model) ·
-[Architecture](#architecture) · [Run](#run-locally) · [Contribute](#contributing)
+[Why](#why) | [Demo](#demo-workflow) | [Model](#core-model) |
+[User Stories](USER_STORIES.md) | [Roadmap](ROADMAP.md) |
+[Architecture](#architecture) | [Run](#run-locally) | [Contribute](#contributing)
 
 Languages:
-[English](README.md) ·
-[简体中文](README.zh-CN.md) ·
-[日本語](docs/i18n/README.ja.md) ·
-[한국어](docs/i18n/README.ko.md) ·
-[Español](docs/i18n/README.es.md) ·
-[Français](docs/i18n/README.fr.md) ·
-[Deutsch](docs/i18n/README.de.md) ·
-[Português](docs/i18n/README.pt-BR.md)
+[English](README.md) |
+[Chinese](README.zh-CN.md) |
+[Japanese](docs/i18n/README.ja.md) |
+[Korean](docs/i18n/README.ko.md) |
+[Spanish](docs/i18n/README.es.md) |
+[French](docs/i18n/README.fr.md) |
+[Deutsch](docs/i18n/README.de.md) |
+[Portuguese](docs/i18n/README.pt-BR.md)
 
 </div>
 

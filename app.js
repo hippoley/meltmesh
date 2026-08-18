@@ -8,7 +8,7 @@ const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, powerPr
 const state = {
   blend: 0.34, spacing: 1.00, radius: 1, boxSize: 0.78, contactThreshold:0.48, consumeScale:1.18, booleanSmooth:0.34, frontNoise:0.28, dissolveRate:0.95, recoveryRate:0.025,
   roughness: 0.025, specular: 1.18, transmission: 1.00, ior: 1.57, color: [0.72, 0.93, 1.0],
-  yaw: -0.55, pitch: 0.25, distance: 6.2, preset: 0, selected: 'sphere', mode:'move', meshFusion:true, meshVolumeReady:false, contactDebug:true, dissolveMemory:0, phaseSeeds:Array.from({length:8},()=>[0,0,0,0]),phaseNormals:Array.from({length:8},()=>[0,1,0,0]),
+  yaw: -0.55, pitch: 0.25, distance: 6.2, preset: 0, selected: 'sphere', mode:'move', meshFusion:true, meshVolumeReady:false, contactDebug:true, guidePack:false, materialPark:false, dissolveMemory:0, phaseSeeds:Array.from({length:8},()=>[0,0,0,0]),phaseNormals:Array.from({length:8},()=>[0,1,0,0]),
   imported:[],
   objects:{
     sphere:{position:[-0.55,0,0],scale:1,role:'memory',residue:{strength:0,memory:0,optical:0,geometry:0,color:[0.72,0.93,1]}},
@@ -205,16 +205,44 @@ function applyPreset(name){Object.assign(state,presets[name]);document.querySele
 document.querySelectorAll('.preset').forEach(button=>button.addEventListener('click',()=>applyPreset(button.dataset.preset)));
 document.getElementById('randomize').addEventListener('click',()=>{state.blend=.12+Math.random()*.85;state.spacing=.45+Math.random()*1.45;state.radius=.58+Math.random()*.68;state.boxSize=.48+Math.random()*.62;['blend','spacing','radius','boxSize'].forEach(id=>{document.getElementById(id).value=state[id];document.querySelector(`output[for=${id}]`).value=state[id].toFixed(2);});});
 document.getElementById('resetView').addEventListener('click',()=>Object.assign(state,{yaw:-.55,pitch:.25,distance:6.2}));
-let dragging=false,lastX=0,lastY=0;
+let dragging=false,lastX=0,lastY=0,downX=0,downY=0,pointerButton=0,viewPresetIndex=0;
+const viewPresets=[
+  {name:'front',yaw:0,pitch:.12,distance:8.5},
+  {name:'three-quarter',yaw:-.62,pitch:.32,distance:8.8},
+  {name:'top',yaw:-.01,pitch:1.12,distance:9.5},
+  {name:'side',yaw:Math.PI/2,pitch:.16,distance:8.5},
+  {name:'close material',yaw:-.36,pitch:.18,distance:5.2},
+];
 function selectedObject(){return state.objects[state.selected]||state.imported.find(item=>item.id===state.selected)||state.objects.sphere;}
 function syncTransformPanel(object=selectedObject()){
   if(!object)return;
   ['tx','ty','tz'].forEach((id,index)=>{const input=document.getElementById(id);if(input)input.value=Number(object.position?.[index]||0).toFixed(2);});
   const scaleInput=document.getElementById('objectScale');if(scaleInput)scaleInput.value=Number(object.scale||1).toFixed(2);
 }
-interactionSurface.addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();dragging=true;lastX=e.clientX;lastY=e.clientY;interactionSurface.setPointerCapture?.(e.pointerId);});
-interactionSurface.addEventListener('pointermove',e=>{if(!dragging)return;e.preventDefault();const dx=e.clientX-lastX,dy=e.clientY-lastY;if(state.mode==='move'){const object=selectedObject();if(object?.position){const speed=state.distance*.0018;object.position[0]+=dx*Math.cos(state.yaw)*speed;object.position[2]-=dx*Math.sin(state.yaw)*speed;object.position[1]-=dy*speed;state.preset=3;syncTransformPanel(object);document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}else{state.yaw-=dx*.008;state.pitch=Math.max(-1.25,Math.min(1.25,state.pitch+dy*.008));}lastX=e.clientX;lastY=e.clientY;});
-interactionSurface.addEventListener('pointerup',e=>{dragging=false;interactionSurface.releasePointerCapture?.(e.pointerId);scheduleVolumeRebuild();}); interactionSurface.addEventListener('pointercancel',e=>{dragging=false;interactionSurface.releasePointerCapture?.(e.pointerId);});
+function formatGuideSelection(entry){
+  if(!entry)return '';
+  if(entry.source==='GPUOpen MatLib')return `${entry.index}/${entry.uniqueCount||'?'} unique · ${entry.name} · ${entry.family} · ${entry.category} · ${entry.license}`;
+  return `${entry.index}. ${entry.module} / ${entry.name} · ${entry.description}`;
+}
+function pickGuideAt(clientX,clientY){
+  const entry=threeRenderer?.pickGuideEntry?.(clientX,clientY);
+  if(!entry)return false;
+  state.guideFocus=entry.position;
+  state.distance=Math.max(2.8,Math.min(6.2,state.distance*.55));
+  const panel=document.getElementById('guideAtlasPanel');
+  if(panel){panel.hidden=false;panel.querySelector('strong').textContent=entry.source==='GPUOpen MatLib'?'GPUOpen material selected':'Three.js guide example';panel.querySelector('#guideAtlasSummary').textContent=formatGuideSelection(entry);}
+  showToast(formatGuideSelection(entry));
+  return true;
+}
+function applyViewPreset(){
+  const preset=viewPresets[viewPresetIndex++%viewPresets.length];
+  Object.assign(state,{yaw:preset.yaw,pitch:preset.pitch,distance:preset.distance});
+  showToast(`View: ${preset.name}`);
+}
+interactionSurface.addEventListener('contextmenu',e=>e.preventDefault());
+interactionSurface.addEventListener('pointerdown',e=>{if(e.button!==0&&e.button!==2)return;e.preventDefault();dragging=true;pointerButton=e.button;lastX=e.clientX;lastY=e.clientY;downX=e.clientX;downY=e.clientY;interactionSurface.setPointerCapture?.(e.pointerId);});
+interactionSurface.addEventListener('pointermove',e=>{if(!dragging)return;e.preventDefault();const dx=e.clientX-lastX,dy=e.clientY-lastY;const orbiting=pointerButton===2||state.mode==='orbit';if(!orbiting){const object=selectedObject();if(object?.position){const speed=state.distance*.0018;object.position[0]+=dx*Math.cos(state.yaw)*speed;object.position[2]-=dx*Math.sin(state.yaw)*speed;object.position[1]-=dy*speed;state.preset=3;syncTransformPanel(object);document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}else{state.yaw-=dx*.008;state.pitch=Math.max(-1.25,Math.min(1.25,state.pitch+dy*.008));}lastX=e.clientX;lastY=e.clientY;});
+interactionSurface.addEventListener('pointerup',e=>{const clickDistance=Math.hypot(e.clientX-downX,e.clientY-downY),wasRight=pointerButton===2;dragging=false;pointerButton=0;interactionSurface.releasePointerCapture?.(e.pointerId);if(clickDistance<4){if(wasRight){applyViewPreset();return;}if(pickGuideAt(e.clientX,e.clientY))return;}scheduleVolumeRebuild();}); interactionSurface.addEventListener('pointercancel',e=>{dragging=false;pointerButton=0;interactionSurface.releasePointerCapture?.(e.pointerId);});
 interactionSurface.addEventListener('wheel',e=>{e.preventDefault();state.distance=Math.max(3.3,Math.min(11,state.distance+e.deltaY*.006));},{passive:false});
 
 const meshGl=meshCanvas.getContext('webgl2',{alpha:true,antialias:true,premultipliedAlpha:false});
@@ -313,6 +341,39 @@ async function loadSampleAssets(){
   await importGlbs(files);
   showToast(`Loaded ${files.length} material samples`);
 }
+function loadVisualGuidePack(){
+  const catalog=window.meltmeshVisualGuideCatalog||[];
+  state.guidePack=!state.guidePack;
+  state.materialPark=false;
+  state.yaw=-0.62;state.pitch=0.42;state.distance=9.2;state.preset=3;
+  state.guideFocus=[0,-0.05,0];
+  Object.assign(state,{blend:.42,contactThreshold:.5,consumeScale:1.05,booleanSmooth:.38,frontNoise:.24});
+  state.objects.sphere.position=[-2.35,.15,.55];state.objects.sphere.scale=.72;
+  state.objects.box.position=[-1.55,.12,.7];state.objects.box.scale=.62;state.objects.box.visible=true;
+  state.color=[.72,.93,1];state.roughness=.035;state.specular=1.2;state.transmission=1;state.ior=1.58;
+  const panel=document.getElementById('guideAtlasPanel');
+  if(panel){panel.hidden=!state.guidePack;document.getElementById('guideAtlasPanel').querySelector('strong').textContent='Three.js Visual Guide Pack';document.getElementById('guideAtlasSummary').textContent=state.guidePack?`${catalog.length||97} rendering examples mapped into MeltMesh: geometry, materials, lights, cameras, textures, post-FX, controls, TSL, animation, loaders, physics, helpers, curves, and math.`:'Guide pack disabled';}
+  document.getElementById('renderStatus').textContent=state.guidePack?'Three.js Visual Guide Pack':'Three.js PBR + SDF';
+  selectObject(state.selected);
+  showToast(state.guidePack?`Guide Pack loaded: ${catalog.length||97} rendering examples`:'Guide Pack hidden');
+}
+function loadMaterialPark(){
+  const catalog=window.meltmeshMaterialParkCatalog||[];
+  const sourceCount=window.meltmeshMaterialParkSourceCount||catalog.length;
+  state.materialPark=!state.materialPark;
+  state.guidePack=false;
+  state.yaw=-0.12;state.pitch=0.12;state.distance=11.6;state.preset=3;
+  state.guideFocus=[1.4,-0.34,-13.6];
+  Object.assign(state,{blend:.58,contactThreshold:.44,consumeScale:1.0,booleanSmooth:.32,frontNoise:.16});
+  state.objects.sphere.position=[-2.45,.12,.2];state.objects.sphere.scale=.78;
+  state.objects.box.position=[-1.65,.1,.22];state.objects.box.scale=.68;state.objects.box.visible=true;
+  state.color=[.74,.91,.97];state.roughness=.04;state.specular=1.22;state.transmission=.98;state.ior=1.52;
+  const panel=document.getElementById('guideAtlasPanel');
+  if(panel){panel.hidden=!state.materialPark;panel.querySelector('strong').textContent='Daylight Material Ball Pool';panel.querySelector('#guideAtlasSummary').textContent=state.materialPark?`${catalog.length||0} unique GPUOpen materials fill a deep tiled pool. The water is a modeled optical layer with IOR 1.333, absorption depth, moving normals, daylight reflection, submerged color shift, and floor caustics.`:'Material park disabled';}
+  document.getElementById('renderStatus').textContent=state.materialPark?'Material Park':'Three.js PBR + SDF';
+  selectObject(state.selected);
+  showToast(state.materialPark?`Material Park loaded: ${catalog.length||0} unique materials`:'Material Park hidden');
+}
 function selectObject(name){
   if(!state.objects[name])return;state.selected=name;document.querySelectorAll('[data-object]').forEach(button=>button.classList.toggle('active',button.dataset.object===name));document.getElementById('selectedName').textContent=`${t(objectNames[name])||state.objects[name].name||t('importedObject')} · ${t('transform')}`;
   const object=state.objects[name];['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).value=object.position[index].toFixed(2));document.getElementById('objectScale').value=object.scale.toFixed(2);
@@ -356,7 +417,15 @@ window.addEventListener('meltmesh-language-change',()=>{if(document.querySelecto
 ['tx','ty','tz'].forEach((id,index)=>document.getElementById(id).addEventListener('input',event=>{const value=Number(event.target.value),object=selectedObject();if(Number.isFinite(value)&&object?.position){object.position[index]=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}}));
 document.getElementById('objectScale').addEventListener('input',event=>{const value=Number(event.target.value),object=selectedObject();if(Number.isFinite(value)&&value>0&&object){object.scale=value;state.preset=3;scheduleVolumeRebuild();document.querySelectorAll('.preset').forEach(button=>button.classList.remove('active'));}});
 document.getElementById('resetObject').addEventListener('click',()=>{const positions={sphere:[-.55,0,0],box:[.5,.08,0],mesh:[0,0,0]},object=selectedObject(),fallback=positions[state.selected]||[0,0,0],bounds=object?.bounds;if(!object)return;object.position=[...fallback];object.scale=1;if(bounds)object.bounds=bounds;state.preset=3;selectObject(state.selected);});
-document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>{state.mode=button.dataset.mode;document.querySelectorAll('[data-mode]').forEach(item=>item.classList.toggle('active',item===button));canvas.style.cursor=state.mode==='move'?'move':'grab';}));
+function setInteractionMode(mode){
+  state.mode=mode;
+  document.querySelectorAll('[data-mode]').forEach(item=>item.classList.toggle('active',item.dataset.mode===mode));
+  interactionSurface.style.cursor=mode==='move'?'move':'grab';
+}
+document.querySelectorAll('[data-mode]').forEach(button=>{
+  button.addEventListener('pointerdown',event=>{event.preventDefault();event.stopPropagation();setInteractionMode(button.dataset.mode);});
+  button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();setInteractionMode(button.dataset.mode);});
+});
 function setFusionMode(enabled){state.meshFusion=enabled;interactionSurface.classList.toggle('fusion-active',enabled);}
 document.getElementById('meshFusion').addEventListener('change',event=>setFusionMode(event.target.checked));
 document.getElementById('contactDebug').addEventListener('change',event=>{state.contactDebug=event.target.checked;showToast(t(state.contactDebug?'contactDebugOn':'contactDebugOff'));});
@@ -411,6 +480,8 @@ async function importGlbs(files){
 const input=document.getElementById('fileInput'),viewport=document.getElementById('viewport'),dropHint=document.getElementById('dropHint');
 document.getElementById('importButton').addEventListener('click',()=>input.click());input.addEventListener('change',()=>{if(input.files.length)importFiles(input.files);input.value='';});
 document.getElementById('loadSamplesButton')?.addEventListener('click',()=>loadSampleAssets());
+document.getElementById('loadGuidePackButton')?.addEventListener('click',()=>loadVisualGuidePack());
+document.getElementById('loadMaterialParkButton')?.addEventListener('click',()=>loadMaterialPark());
 document.getElementById('playSequence').addEventListener('click',()=>{sequencePlaying=!sequencePlaying;if(sequencePlaying)sequenceStart=performance.now()-sequenceFrame/(Number(document.getElementById('sequenceFps').value)||24)*1000;document.getElementById('playSequence').textContent=sequencePlaying?'Ⅱ':'▶';});
 document.getElementById('frameSlider').addEventListener('input',e=>{sequencePlaying=false;sequenceFrame=Number(e.target.value);document.getElementById('playSequence').textContent='▶';updateTimeline();});
 viewport.addEventListener('dragover',e=>{e.preventDefault();dropHint.hidden=false;});viewport.addEventListener('dragleave',e=>{if(!viewport.contains(e.relatedTarget))dropHint.hidden=true;});viewport.addEventListener('drop',e=>{e.preventDefault();dropHint.hidden=true;if(e.dataTransfer.files.length)importFiles(e.dataTransfer.files);});

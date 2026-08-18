@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#111310">
   <title>MeltMesh - Reactive SDF Studio</title>
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
   <main class="app-shell">
@@ -19,6 +19,12 @@
         </button>
         <button class="import-button secondary" id="loadSamplesButton" type="button" title="Load sample assets">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5h16v14H4Zm4-3 3-4 2 3 3-5 4 6"/></svg><span>Samples</span>
+        </button>
+        <button class="import-button secondary" id="loadGuidePackButton" type="button" title="Load Three.js visual guide examples">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16M7 3v18M17 3v18"/></svg><span>Guide Pack</span>
+        </button>
+        <button class="import-button secondary" id="loadMaterialParkButton" type="button" title="Load material park examples">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5Zm-8 7v8l8 5 8-5V9"/></svg><span>Material Park</span>
         </button>
         <input id="fileInput" type="file" accept=".glb,.obj,.stl,.abc,.vdb,model/gltf-binary,model/obj,model/stl" multiple hidden>
       </div>
@@ -49,6 +55,10 @@
         <div class="error-panel" id="errorPanel" hidden><strong data-i18n="renderFail">Unable to start real-time rendering</strong><p id="errorMessage"></p></div>
         <div class="drop-hint" id="dropHint" hidden><strong data-i18n="dropTitle">Release to import model</strong><span>GLB / OBJ / STL</span></div>
         <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+        <div class="guide-atlas-panel" id="guideAtlasPanel" hidden>
+          <strong>Three.js Visual Guide Pack</strong>
+          <span id="guideAtlasSummary">97 rendering examples mapped into MeltMesh</span>
+        </div>
         <div class="timeline" id="timeline" hidden>
           <button id="playSequence" class="play-button" type="button" aria-label="Play or pause sequence" title="Play or pause" data-i18n-aria-label="playPause" data-i18n-title="playPause">�?/button>
           <span id="frameLabel">1 / 1</span>
@@ -132,10 +142,12 @@
       </aside>
     </section>
   </main>
+  <script src="visual-guide-catalog.js?v=1"></script>
+  <script src="material-park-catalog.js?v=1"></script>
   <script src="webgpu-renderer.js?v=13"></script>
   <script src="domain-router.js?v=6"></script>
-  <script type="module" src="three-renderer.js?v=42"></script>
+  <script type="module" src="three-renderer.js?v=52"></script>
   <script src="i18n.js?v=2"></script>
-  <script src="app.js?v=61"></script>
+  <script src="app.js?v=71"></script>
 </body>
 </html>
