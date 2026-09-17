@@ -1,4 +1,4 @@
-<div align="center">
+> **[Open the live demo →](https://hippoley.github.io/meltmesh/)** · MeltMesh live renderer, built and deployed by GitHub Actions.\n\n<div align="center">
 
 # MeltMesh
 
