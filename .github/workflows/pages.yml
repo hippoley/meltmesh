@@ -1,0 +1,51 @@
+name: Deploy interactive renderer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'styles.css'
+      - '*.js'
+      - 'vendor/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  validate-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate browser modules
+        run: |
+          node --check app.js
+          node --check domain-router.js
+          node --check i18n.js
+          node --check webgpu-renderer.js
+      - name: Assemble static site
+        run: |
+          mkdir dist
+          cp index.html styles.css app.js domain-router.js i18n.js three-renderer.js webgpu-renderer.js dist/
+          cp -R vendor dist/vendor
+          touch dist/.nojekyll
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
