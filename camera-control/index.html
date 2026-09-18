@@ -62,20 +62,24 @@
     </section>
 
     <aside class="inspector">
-      <section class="block">
-        <div class="block-head"><b>Shot</b></div>
-        <div class="shots" id="shots"></div>
-      </section>
+      <div class="inspector-title">Camera</div>
 
-      <section class="block">
-        <div class="block-head"><b>Focus</b><small>or click object in scene</small></div>
-        <div class="targets" id="targets"></div>
-        <div class="target-meta" id="targetMeta"></div>
-      </section>
+      <label class="field">
+        <span>Shot</span>
+        <select id="shots"></select>
+      </label>
 
-      <section class="block">
-        <div class="block-head"><b>Segment</b><small>pick one, then change speed</small></div>
-        <div class="segments" id="segments"></div>
+      <label class="field">
+        <span>Focus</span>
+        <select id="targets"></select>
+      </label>
+      <div class="target-meta" id="targetMeta"></div>
+
+      <div class="motion-row">
+        <label class="field">
+          <span>Segment</span>
+          <select id="segments"></select>
+        </label>
 
         <div class="speed-control">
           <div class="control-head">
@@ -90,36 +94,37 @@
           <button type="button" data-motion-preset="cruise">Cruise</button>
           <button type="button" data-motion-preset="arrive">Arrive</button>
         </div>
-
-        <div id="segmentSummary" class="segment-summary"></div>
-      </section>
+      </div>
 
       <details class="advanced">
-        <summary>Advanced</summary>
+        <summary>Path & timing</summary>
         <div class="advanced-body">
           <div class="points" id="points"></div>
+
           <div class="row-actions">
             <button id="addPoint" type="button">+ Point</button>
             <button id="deletePoint" type="button">Delete</button>
           </div>
 
-          <div class="grid2">
-            <div class="control">
-              <div class="control-head"><label for="duration">Duration</label><span id="durationVal">2.0 s</span></div>
-              <input id="duration" type="range" min=".5" max="8" step=".1" value="2">
-            </div>
-            <div class="control">
-              <div class="control-head"><label for="accelIn">Accel</label><span id="accelInVal">5.0</span></div>
-              <input id="accelIn" type="range" min="0" max="10" step=".1" value="5">
-            </div>
-            <div class="control">
-              <div class="control-head"><label for="brakeOut">Brake</label><span id="brakeOutVal">5.0</span></div>
-              <input id="brakeOut" type="range" min="0" max="10" step=".1" value="5">
-            </div>
+          <div class="control">
+            <div class="control-head"><label for="duration">Duration</label><span id="durationVal">2.0 s</span></div>
+            <input id="duration" type="range" min=".5" max="8" step=".1" value="2">
           </div>
 
+          <div class="control">
+            <div class="control-head"><label for="accelIn">Accel</label><span id="accelInVal">5.0</span></div>
+            <input id="accelIn" type="range" min="0" max="10" step=".1" value="5">
+          </div>
+
+          <div class="control">
+            <div class="control-head"><label for="brakeOut">Brake</label><span id="brakeOutVal">5.0</span></div>
+            <input id="brakeOut" type="range" min="0" max="10" step=".1" value="5">
+          </div>
+
+          <div id="segmentSummary" class="segment-summary"></div>
+
           <div class="advanced-actions">
-            <button id="playSequence" type="button">Play all shots</button>
+            <button id="playSequence" type="button">Play all</button>
             <button id="loop" type="button">Loop</button>
             <button id="reset" type="button">Reset</button>
           </div>
