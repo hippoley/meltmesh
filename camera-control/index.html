@@ -30,12 +30,10 @@
       <div class="stage" id="stage">
         <canvas id="scene"></canvas>
         <canvas id="frameOverlay"></canvas>
-
         <div class="statusbar">
           <span id="status">READY</span>
           <span>drag · zoom · click object</span>
         </div>
-
         <div class="loading" id="loading">Building 3D room…</div>
         <div class="error" id="error"></div>
       </div>
@@ -53,61 +51,76 @@
       <div class="mini-views">
         <div class="mini-view">
           <canvas id="topView"></canvas>
-          <span>TOP · room projection · click = next point</span>
+          <div class="mini-caption">
+            <b>TOP</b>
+            <span>click = next point</span>
+          </div>
         </div>
         <div class="mini-view">
           <canvas id="sideView"></canvas>
-          <span>SIDE · room projection · drag = height</span>
+          <div class="mini-caption">
+            <b>SIDE</b>
+            <span id="heightHint">height auto</span>
+          </div>
         </div>
       </div>
     </section>
 
     <aside class="inspector">
-      <label class="field">
-        <span>Shot</span>
-        <select id="shots"></select>
-      </label>
+      <div class="inspector-head">
+        <label>
+          <span>SHOT</span>
+          <select id="shots"></select>
+        </label>
+        <button id="qReset" type="button" title="Reset movement controls">↺</button>
+      </div>
 
-      <label class="field">
-        <span>Look at</span>
-        <select id="targets"></select>
-      </label>
-      <div class="target-meta" id="targetMeta"></div>
+      <div class="camera-control-card">
+        <div class="control-pair">
+          <label class="quick-control">
+            <span>Horizontal <b id="qHorizontalVal">0.0</b></span>
+            <input id="qHorizontal" type="range" min="-10" max="10" step=".1" value="0">
+          </label>
+          <label class="quick-control">
+            <span>Pan <b id="qPanVal">0.0</b></span>
+            <input id="qPan" type="range" min="-10" max="10" step=".1" value="0">
+          </label>
+        </div>
 
-      <div class="quick-move">
-        <div class="quick-title">Camera move</div>
+        <div class="control-pair">
+          <label class="quick-control">
+            <span>Vertical <b id="qVerticalVal">0.0</b></span>
+            <input id="qVertical" type="range" min="-10" max="10" step=".1" value="0">
+          </label>
+          <label class="quick-control">
+            <span>Tilt <b id="qTiltVal">0.0</b></span>
+            <input id="qTilt" type="range" min="-10" max="10" step=".1" value="0">
+          </label>
+        </div>
 
-        <label class="quick-control">
-          <span>Horizontal <b id="qHorizontalVal">0.0</b></span>
-          <input id="qHorizontal" type="range" min="-10" max="10" step=".1" value="0">
-        </label>
-        <label class="quick-control">
-          <span>Pan <b id="qPanVal">0.0</b></span>
-          <input id="qPan" type="range" min="-10" max="10" step=".1" value="0">
-        </label>
-        <label class="quick-control">
-          <span>Vertical <b id="qVerticalVal">0.0</b></span>
-          <input id="qVertical" type="range" min="-10" max="10" step=".1" value="0">
-        </label>
-        <label class="quick-control">
-          <span>Tilt <b id="qTiltVal">0.0</b></span>
-          <input id="qTilt" type="range" min="-10" max="10" step=".1" value="0">
-        </label>
-        <label class="quick-control">
-          <span>Zoom <b id="qZoomVal">0.0</b></span>
-          <input id="qZoom" type="range" min="-10" max="10" step=".1" value="0">
-        </label>
-        <label class="quick-control">
-          <span>Rotate <b id="qRotateVal">0.0</b></span>
-          <input id="qRotate" type="range" min="-10" max="10" step=".1" value="0">
-        </label>
+        <div class="control-pair">
+          <label class="quick-control">
+            <span>Zoom <b id="qZoomVal">0.0</b></span>
+            <input id="qZoom" type="range" min="-10" max="10" step=".1" value="0">
+          </label>
+          <label class="quick-control">
+            <span>Rotate <b id="qRotateVal">0.0</b></span>
+            <input id="qRotate" type="range" min="-10" max="10" step=".1" value="0">
+          </label>
+        </div>
 
         <button class="apply-move" id="qApply" type="button">Apply movement</button>
       </div>
 
       <details class="advanced">
-        <summary>Path / timing</summary>
+        <summary>More</summary>
         <div class="advanced-body">
+          <label class="field">
+            <span>Look at</span>
+            <select id="targets"></select>
+          </label>
+          <div class="target-meta" id="targetMeta"></div>
+
           <label class="field">
             <span>Move</span>
             <select id="segments"></select>
@@ -121,10 +134,11 @@
             <input id="speed" type="range" min=".25" max="3" step=".05" value="1">
           </div>
 
-          <button class="continue-btn" id="addPoint" type="button">＋ Next point</button>
-
           <div class="points" id="points"></div>
-          <button class="delete-btn" id="deletePoint" type="button">Delete point</button>
+          <div class="point-actions">
+            <button class="continue-btn" id="addPoint" type="button">＋ Next</button>
+            <button class="delete-btn" id="deletePoint" type="button">Delete</button>
+          </div>
 
           <div class="control">
             <div class="control-head"><label for="duration">Duration</label><span id="durationVal">2.0 s</span></div>
@@ -142,7 +156,6 @@
           </div>
 
           <div id="segmentSummary" class="segment-summary"></div>
-
           <div class="advanced-actions">
             <button id="playSequence" type="button">Play all</button>
             <button id="loop" type="button">Loop</button>
@@ -153,7 +166,6 @@
     </aside>
   </div>
 </main>
-
 <script type="module" src="./app.js"></script>
 </body>
 </html>
