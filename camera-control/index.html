@@ -29,7 +29,7 @@ body{display:flex;justify-content:center}
 .panel{display:flex;flex-direction:column;min-width:0;padding:3px 2px}
 .hero h1{font-size:23px;letter-spacing:-.035em;margin:0}
 .hero p{font-size:11.5px;line-height:1.5;color:#817687;margin:5px 0 12px}
-.section{border:1px solid #ece7ef;border-radius:14px;padding:11px;margin-bottom:9px}
+.section{border:1px solid #ece7ef;border-radius:14px;padding:11px;margin-bottom:9px}.targets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.targetbtn{border:1px solid #e8e1ec;background:#fbfafd;border-radius:10px;padding:9px 5px;color:#665a6e;font-size:10px;cursor:pointer}.targetbtn.active{background:#2f2934;color:#fff;border-color:#2f2934}.targetmeta{margin-top:7px;color:#918597;font-size:9.5px}
 .sectionhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
 .sectionhead b{font-size:12px}.sectionhead span{font-size:9.5px;color:#998da0}
 .keyframes{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
@@ -93,6 +93,17 @@ input[type=range]::-moz-range-thumb{width:6px;height:24px;border:0;border-radius
         </div>
 
         <div class="section">
+          <div class="sectionhead"><b>Target scene</b><span>camera keeps attention here</span></div>
+          <div class="targets" id="targets">
+            <button class="targetbtn active" type="button" data-target="sofa">Sofa</button>
+            <button class="targetbtn" type="button" data-target="window">Window</button>
+            <button class="targetbtn" type="button" data-target="cabinet">Cabinet</button>
+            <button class="targetbtn" type="button" data-target="room">Room center</button>
+          </div>
+          <div class="targetmeta" id="targetMeta">Sofa · [0.0, 1.25, 0.0]</div>
+        </div>
+
+        <div class="section">
           <div class="sectionhead"><b>Camera points</b><span>position keyframes</span></div>
           <div class="keyframes" id="keyframes"></div>
           <div class="kfactions">
@@ -153,7 +164,14 @@ input[type=range]::-moz-range-thumb{width:6px;height:24px;border:0;border-radius
 <script>
 const root={viewer:document.getElementById('viewer'),view:document.getElementById('view'),top:document.getElementById('topView'),side:document.getElementById('sideView')};
 const ctx=root.view.getContext('2d'),topCtx=root.top.getContext('2d'),sideCtx=root.side.getContext('2d');
-const status=document.getElementById('status'),UP=[0,1,0],target=[0,1.2,0];
+const status=document.getElementById('status'),UP=[0,1,0];
+const targets={
+  sofa:{label:'Sofa',pos:[0,1.25,0]},
+  window:{label:'Window',pos:[-3.8,1.65,-5.7]},
+  cabinet:{label:'Cabinet',pos:[3,.8,-2.8]},
+  room:{label:'Room center',pos:[0,1.3,-.4]}
+};
+let targetId='sofa',target=targets[targetId].pos.slice();
 const defaults=[{id:'A',pos:[0,1.7,7.2]},{id:'B',pos:[1.4,2.1,5.3]},{id:'C',pos:[3.0,1.6,2.4]},{id:'D',pos:[1.1,1.9,-1.5]}];
 const defaultSegments=[{duration:2.0,speed:1,accelIn:6,brakeOut:2},{duration:1.8,speed:1.15,accelIn:2,brakeOut:2},{duration:2.4,speed:.85,accelIn:2,brakeOut:8}];
 let points=structuredClone(defaults),segments=structuredClone(defaultSegments),selectedPoint=0,selectedSegment=0;
@@ -175,7 +193,11 @@ function box(cx,cy,cz,sx,sy,sz){const p=[[cx-sx/2,cy-sy/2,cz-sz/2],[cx+sx/2,cy-s
 for(let x=-6;x<=6;x++)edges.push([[x,0,-6],[x,0,6],'g']);for(let z=-6;z<=6;z++)edges.push([[-6,0,z],[6,0,z],'g']);box(0,.45,-.3,3,.75,1.35);box(-3.8,1.65,-5.7,2.8,1.9,.12);box(3,.7,-2.8,1.5,1.4,.8);box(-2.8,.5,2.1,1.2,1,1.2);
 
 function project(pt,cam,w,h){const rel=sub(pt,cam.pos),x=dot(rel,cam.r),y=dot(rel,cam.u),z=dot(rel,cam.f);if(z<=.06)return null;const f=(h/2)/Math.tan(deg(cam.fov)/2);return[w/2+x*f/z,h/2-y*f/z,z]}
-function drawScene(cam){const r=root.viewer.getBoundingClientRect(),w=r.width,h=r.height,g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#19151d');g.addColorStop(1,'#0f0c12');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);for(const e of edges){const a=project(e[0],cam,w,h),b=project(e[1],cam,w,h);if(!a||!b)continue;ctx.strokeStyle=e[2]==='o'?'rgba(214,181,236,.64)':'rgba(174,151,188,.22)';ctx.lineWidth=e[2]==='o'?1.3:1;ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke()}const tp=project(target,cam,w,h);if(tp){ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(tp[0],tp[1],3,0,Math.PI*2);ctx.fill()}}
+function drawScene(cam){const r=root.viewer.getBoundingClientRect(),w=r.width,h=r.height,g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#19151d');g.addColorStop(1,'#0f0c12');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);for(const e of edges){const a=project(e[0],cam,w,h),b=project(e[1],cam,w,h);if(!a||!b)continue;ctx.strokeStyle=e[2]==='o'?'rgba(214,181,236,.64)':'rgba(174,151,188,.22)';ctx.lineWidth=e[2]==='o'?1.3:1;ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke()}const tp=project(target,cam,w,h);if(tp){
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(tp[0],tp[1],3.2,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.68)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(tp[0],tp[1],10,0,Math.PI*2);ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.78)';ctx.font='10px ui-monospace,monospace';ctx.fillText(targets[targetId].label,tp[0]+14,tp[1]-8);
+}}
 function drawGhostFrames(baseCam){const r=root.viewer.getBoundingClientRect(),w=r.width,h=r.height,total=totalDuration(),times=[.12,.25,.38,.52,.66,.82,1].map(x=>x*total);times.forEach((tt,i)=>{const cc=cameraAt(tt),p=project(cc.pos,baseCam,w,h);if(!p)return;const scale=clamp(1.15-p[2]/22,.35,.95),fw=w*.32*scale,fh=fw*(h/w);ctx.strokeStyle=i===times.length-1?'rgba(238,218,250,.9)':'rgba(205,166,234,'+(.16+i*.06)+')';ctx.lineWidth=i===times.length-1?1.6:1;ctx.strokeRect(p[0]-fw/2,p[1]-fh/2,fw,fh)})}
 function miniBounds(mode){const pts=samplePath(120).map(c=>mode==='top'?[c.pos[0],c.pos[2]]:[c.pos[2],c.pos[1]]),xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);if(mode==='top')return{minX:Math.min(-6,...xs),maxX:Math.max(6,...xs),minY:Math.min(-6,...ys),maxY:Math.max(6,...ys)};return{minX:Math.min(-6,...xs),maxX:Math.max(8,...xs),minY:Math.min(0,...ys),maxY:Math.max(4,...ys)}}
 function miniMapper(canvas,mode){const r=canvas.parentElement.getBoundingClientRect(),w=r.width,h=r.height,pad=15,b=miniBounds(mode),sx=(w-pad*2)/(b.maxX-b.minX||1),sy=(h-pad*2)/(b.maxY-b.minY||1),sc=Math.min(sx,sy),cx=(b.minX+b.maxX)/2,cy=(b.minY+b.maxY)/2;return{w,h,sc,cx,cy,map:(x,y)=>mode==='top'?[w/2+(x-cx)*sc,h/2+(y-cy)*sc]:[w/2+(x-cx)*sc,h/2-(y-cy)*sc],unmap:(px,py)=>mode==='top'?[cx+(px-w/2)/sc,cy+(py-h/2)/sc]:[cx+(px-w/2)/sc,cy-(py-h/2)/sc]}}
@@ -190,10 +212,20 @@ function refreshUI(){const k=document.getElementById('keyframes');k.innerHTML=''
 function setSeg(prop,v){segments[selectedSegment][prop]=+v;refreshUI();status.textContent='SEGMENT '+points[selectedSegment].id+'→'+points[selectedSegment+1].id;render()}
 document.getElementById('duration').oninput=e=>setSeg('duration',e.target.value);document.getElementById('speed').oninput=e=>setSeg('speed',e.target.value);document.getElementById('accelIn').oninput=e=>setSeg('accelIn',e.target.value);document.getElementById('brakeOut').oninput=e=>setSeg('brakeOut',e.target.value);
 
+function selectTarget(id){
+  if(!targets[id])return;
+  targetId=id;target=targets[id].pos.slice();
+  document.querySelectorAll('.targetbtn').forEach(b=>b.classList.toggle('active',b.dataset.target===id));
+  document.getElementById('targetMeta').textContent=targets[id].label+' · ['+target.map(v=>v.toFixed(2)).join(', ')+']';
+  status.textContent='TARGET · '+targets[id].label.toUpperCase();
+  render();
+}
+document.querySelectorAll('.targetbtn').forEach(b=>b.addEventListener('click',()=>selectTarget(b.dataset.target)));
+
 function relabel(){points.forEach((p,i)=>p.id=String.fromCharCode(65+i))}
 document.getElementById('addPoint').onclick=()=>{const i=selectedPoint,newPos=i<points.length-1?mix3(points[i].pos,points[i+1].pos,.5):add(points[i].pos,[1,0,-2]);points.splice(i+1,0,{id:'',pos:newPos});segments.splice(i,0,{duration:2,speed:1,accelIn:5,brakeOut:5});relabel();rebuildSegments();selectedPoint=i+1;selectedSegment=Math.min(i,segments.length-1);refreshUI();render()};
 document.getElementById('deletePoint').onclick=()=>{if(points.length<=2)return;points.splice(selectedPoint,1);relabel();rebuildSegments();selectedPoint=clamp(selectedPoint,0,points.length-1);selectedSegment=clamp(selectedPoint,0,segments.length-1);refreshUI();render()};
-document.getElementById('reset').onclick=()=>{points=structuredClone(defaults);segments=structuredClone(defaultSegments);selectedPoint=0;selectedSegment=0;playhead=0;playing=false;refreshUI();status.textContent='EDIT PATH';render()};
+document.getElementById('reset').onclick=()=>{points=structuredClone(defaults);segments=structuredClone(defaultSegments);selectedPoint=0;selectedSegment=0;playhead=0;playing=false;selectTarget('sofa');refreshUI();status.textContent='EDIT PATH';render()};
 document.getElementById('origin').onclick=()=>{playing=false;playhead=0;document.getElementById('play').textContent='▶ Play full camera path';status.textContent='START';render()};
 document.getElementById('loop').onclick=()=>{looping=!looping;document.getElementById('loop').classList.toggle('active',looping);document.getElementById('loop').textContent=looping?'↻ Loop ON':'↻ Loop'};
 document.getElementById('play').onclick=()=>{if(playhead>=totalDuration())playhead=0;playing=!playing;lastTs=performance.now();document.getElementById('play').textContent=playing?'⏸ Pause':'▶ Play full camera path';status.textContent=playing?'PLAYING PATH':'PAUSED';if(playing)requestAnimationFrame(tick)};
