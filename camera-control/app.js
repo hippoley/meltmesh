@@ -482,15 +482,31 @@ ui.speed.addEventListener('input',e=>setSegment('speed',e.target.value));
 ui.accelIn.addEventListener('input',e=>setSegment('accelIn',e.target.value));
 ui.brakeOut.addEventListener('input',e=>setSegment('brakeOut',e.target.value));
 
+function appendPathPoint(s,p){
+  const previousSegment=s.segments[s.segments.length-1] || {duration:1.8,speed:1,accelIn:5,brakeOut:5};
+  s.points.push([
+    clamp(p[0],-5.2,5.2),
+    clamp(p[1],.35,3.7),
+    clamp(p[2],-5.2,7.8)
+  ]);
+  s.segments.push({...previousSegment});
+  relabelPoints(s);
+  selectedPoint=s.points.length-1;
+  selectedSegment=s.segments.length-1;
+  refreshUI();
+  setStatus('PATH EXTENDED · '+s.pointLabels[selectedPoint-1]+'→'+s.pointLabels[selectedPoint]);
+}
+function nextContinuationPoint(s){
+  const n=s.points.length,last=s.points[n-1],prev=s.points[Math.max(0,n-2)];
+  let dx=last[0]-prev[0],dy=last[1]-prev[1],dz=last[2]-prev[2];
+  const horizontal=Math.hypot(dx,dz);
+  if(horizontal<.2){dx=.9;dz=-1.5;dy=0}
+  return [last[0]+dx,last[1]+dy,last[2]+dz];
+}
 ui.addPoint.addEventListener('click',()=>{
   stopPlayback();
-  const s=shot(),i=selectedPoint;
-  const next=i<s.points.length-1?s.points[i+1]:[s.points[i][0]+.8,s.points[i][1],s.points[i][2]-1.8];
-  const p=i<s.points.length-1?s.points[i].map((v,k)=>(v+next[k])*.5):next;
-  s.points.splice(i+1,0,p);
-  s.segments.splice(i,0,{duration:1.8,speed:1,accelIn:5,brakeOut:5});
-  while(s.segments.length>s.points.length-1)s.segments.pop();
-  relabelPoints(s);selectedPoint=i+1;selectedSegment=Math.min(i,s.segments.length-1);refreshUI();setStatus('POINT ADDED');
+  const s=shot();
+  appendPathPoint(s,nextContinuationPoint(s));
 });
 ui.deletePoint.addEventListener('click',()=>{
   if(shot().points.length<=2)return;
@@ -604,7 +620,17 @@ function drawMini(context,canvas,mode){
   mode==='top'?drawRoomTop(context,m):drawRoomSide(context,m);
   context.strokeStyle='rgba(200,150,232,.96)';context.lineWidth=2;context.beginPath();
   path.forEach((st,i)=>{const p=mode==='top'?m.map(st.position.x,st.position.z):m.map(st.position.z,st.position.y);if(!i)context.moveTo(...p);else context.lineTo(...p)});context.stroke();
-  s.points.forEach((p,i)=>{const q=mode==='top'?m.map(p[0],p[2]):m.map(p[2],p[1]);context.fillStyle=i===selectedPoint?'#ffffff':'#c178e6';context.beginPath();context.arc(q[0],q[1],i===selectedPoint?5:4,0,Math.PI*2);context.fill();context.fillStyle='#c9bacf';context.font='9px ui-monospace';context.fillText(s.pointLabels[i],q[0]+7,q[1]-6)});
+  s.points.forEach((p,i)=>{
+    const q=mode==='top'?m.map(p[0],p[2]):m.map(p[2],p[1]);
+    const isEnd=i===s.points.length-1;
+    context.fillStyle=i===selectedPoint?'#ffffff':'#c178e6';
+    context.beginPath();context.arc(q[0],q[1],i===selectedPoint?5:4,0,Math.PI*2);context.fill();
+    if(isEnd){
+      context.strokeStyle='rgba(255,255,255,.72)';context.lineWidth=1;
+      context.beginPath();context.arc(q[0],q[1],8,0,Math.PI*2);context.stroke();
+    }
+    context.fillStyle='#c9bacf';context.font='9px ui-monospace';context.fillText(s.pointLabels[i],q[0]+7,q[1]-6)
+  });
   const cp=mode==='top'?m.map(camera.position.x,camera.position.z):m.map(camera.position.z,camera.position.y);context.fillStyle='#ffe08b';context.beginPath();context.arc(cp[0],cp[1],4,0,Math.PI*2);context.fill();
   const tar=targetFor();const tp=mode==='top'?m.map(tar.x,tar.z):m.map(tar.z,tar.y);context.fillStyle='#ffffff';context.beginPath();context.arc(tp[0],tp[1],3,0,Math.PI*2);context.fill();
 }
@@ -622,11 +648,8 @@ function bindMini(canvas,mode){
       selectedPoint=hit;selectedSegment=Math.min(hit,shot().segments.length-1);drag={mode,index:hit};canvas.setPointerCapture(e.pointerId);refreshUI();return;
     }
     if(mode==='top'){
-      const m=mapper(canvas,mode),v=m.unmap(x,y),s=shot(),insert=Math.min(selectedPoint+1,s.points.length),height=s.points[selectedPoint]?.[1]??1.7;
-      s.points.splice(insert,0,[clamp(v[0],-5.2,5.2),height,clamp(v[1],-5.2,7.8)]);
-      s.segments.splice(Math.min(selectedPoint,s.segments.length),0,{duration:1.8,speed:1,accelIn:5,brakeOut:5});
-      while(s.segments.length>s.points.length-1)s.segments.pop();
-      relabelPoints(s);selectedPoint=insert;selectedSegment=Math.min(insert,s.segments.length-1);refreshUI();setStatus('POINT ADDED');
+      const m=mapper(canvas,mode),v=m.unmap(x,y),s=shot(),last=s.points[s.points.length-1];
+      appendPathPoint(s,[v[0],last?.[1]??1.7,v[1]]);
     }
   });
   canvas.addEventListener('pointermove',e=>{
