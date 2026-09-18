@@ -278,11 +278,55 @@ function effectiveDuration(seg){ return seg.duration / Math.max(.05,seg.speed); 
 function shotDuration(s=shot()){ return s.segments.reduce((sum,x)=>sum+effectiveDuration(x),0); }
 function totalSequenceDuration(){ return shots.reduce((sum,s)=>sum+shotDuration(s),0); }
 
-function warp(t, accelIn, brakeOut){
-  const m0=1-.95*clamp(accelIn/10,0,1);
-  const m1=1-.95*clamp(brakeOut/10,0,1);
+function harmonicMean(a,b){
+  if(a<=0 || b<=0) return Math.max(a,b,0);
+  return 2*a*b/(a+b);
+}
+function nominalParamRate(seg){
+  return 1/Math.max(.001,effectiveDuration(seg));
+}
+function knotParamRate(s,knotIndex){
+  const lastKnot=s.points.length-1;
+
+  // Only the beginning and end of an entire shot are allowed to approach a stop.
+  if(knotIndex<=0){
+    const seg=s.segments[0],base=nominalParamRate(seg);
+    return base*(1-.95*clamp(seg.accelIn/10,0,1));
+  }
+  if(knotIndex>=lastKnot){
+    const seg=s.segments[s.segments.length-1],base=nominalParamRate(seg);
+    return base*(1-.95*clamp(seg.brakeOut/10,0,1));
+  }
+
+  const prev=s.segments[knotIndex-1],next=s.segments[knotIndex];
+  const prevBase=nominalParamRate(prev),nextBase=nominalParamRate(next);
+
+  // The authored brake/acceleration values still shape the junction,
+  // but an interior waypoint is a pass-through point, not an implicit stop.
+  const prevWish=prevBase*(1-.72*clamp(prev.brakeOut/10,0,1));
+  const nextWish=nextBase*(1-.72*clamp(next.accelIn/10,0,1));
+  const blended=harmonicMean(prevWish,nextWish);
+
+  // Guarantee visible flow through the node even when both adjacent controls are strong.
+  // An explicit Hold/Stop feature can be added separately when a real stop is desired.
+  const floor=.42*Math.min(prevBase,nextBase);
+  const ceiling=1.65*Math.max(prevBase,nextBase);
+  return clamp(blended,floor,ceiling);
+}
+function smoothSegmentWarp(s,segmentIndex,t){
+  const seg=s.segments[segmentIndex],d=effectiveDuration(seg);
+  let m0=d*knotParamRate(s,segmentIndex);
+  let m1=d*knotParamRate(s,segmentIndex+1);
+
+  // Cubic Hermite time law. Matching knot rates on both sides gives C1 camera velocity.
+  // Keep the normalized curve monotone even with very different neighboring speeds.
+  m0=Math.max(0,m0);m1=Math.max(0,m1);
+  const sum=m0+m1;
+  if(sum>3){const scale=3/sum;m0*=scale;m1*=scale}
+
   const t2=t*t,t3=t2*t;
-  return clamp((t3-2*t2+t)*m0+(-2*t3+3*t2)+(t3-t2)*m1,0,1);
+  const u=(t3-2*t2+t)*m0+(-2*t3+3*t2)+(t3-t2)*m1;
+  return clamp(u,0,1);
 }
 function catmull(p0,p1,p2,p3,t){
   const t2=t*t,t3=t2*t;
@@ -306,8 +350,7 @@ function segmentAtTime(s,time){
 }
 function cameraStateAt(s,time){
   const hit=segmentAtTime(s,clamp(time,0,shotDuration(s)));
-  const seg=s.segments[hit.i];
-  const u=warp(hit.local,seg.accelIn,seg.brakeOut);
+  const u=smoothSegmentWarp(s,hit.i,hit.local);
   const p=posOnSegment(s,hit.i,u);
   return {position:new THREE.Vector3(...p), target:targetFor(s).clone(), segment:hit.i, u};
 }
@@ -401,7 +444,7 @@ function renderTiming(){
   ui.speedVal.textContent=seg.speed.toFixed(2)+'×';
   ui.accelInVal.textContent=seg.accelIn.toFixed(1);
   ui.brakeOutVal.textContent=seg.brakeOut.toFixed(1);
-  ui.segmentSummary.textContent=shot().pointLabels[selectedSegment]+'→'+shot().pointLabels[selectedSegment+1]+' · '+seg.duration.toFixed(1)+'s authored · '+effectiveDuration(seg).toFixed(2)+'s effective';
+  ui.segmentSummary.textContent=shot().pointLabels[selectedSegment]+'→'+shot().pointLabels[selectedSegment+1]+' · '+seg.duration.toFixed(1)+'s authored · '+effectiveDuration(seg).toFixed(2)+'s effective · junction velocity auto-smoothed';
 }
 function refreshTimeline(){
   const total=shotDuration();
