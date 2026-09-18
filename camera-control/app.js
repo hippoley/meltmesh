@@ -376,6 +376,7 @@ function setStatus(text){ ui.status.textContent=text; }
 function stopPlayback(){
   playing=false;
   ui.play.textContent='▶ Play selected shot';
+  const q=$('quickPlay'); if(q) q.textContent='▶ Preview shot';
 }
 function switchShot(index,snap=true){
   stopPlayback();
@@ -495,10 +496,53 @@ ui.play.addEventListener('click',()=>{
   playing=!playing;
   controls.enabled=!playing;
   ui.play.textContent=playing?'⏸ Pause selected shot':'▶ Play selected shot';
+  syncPlayLabels();
   setStatus(playing?'PLAYING · '+shot().name.toUpperCase():'PAUSED');
 });
 ui.playSequence.addEventListener('click',()=>{
   playbackMode='sequence';sequenceIndex=0;currentShotIndex=0;playhead=0;selectedPoint=0;selectedSegment=0;playing=true;controls.enabled=false;setTargetMarker();refreshUI();setStatus('PLAYING SEQUENCE');
+});
+
+const quickPlay=$('quickPlay');
+const quickStart=$('quickStart');
+
+function syncPlayLabels(){
+  if(quickPlay) quickPlay.textContent=playing?'⏸ Pause shot':'▶ Preview shot';
+}
+quickPlay?.addEventListener('click',()=>{
+  ui.play.click();
+  syncPlayLabels();
+});
+quickStart?.addEventListener('click',()=>ui.origin.click());
+
+document.querySelectorAll('[data-motion-preset]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const preset=btn.dataset.motionPreset;
+    const seg=shot().segments[selectedSegment];
+    if(preset==='smooth'){
+      seg.speed=.9; seg.accelIn=5.5; seg.brakeOut=5.5;
+    }else if(preset==='cruise'){
+      seg.speed=1.15; seg.accelIn=1.5; seg.brakeOut=1.5;
+    }else if(preset==='arrive'){
+      seg.speed=.85; seg.accelIn=2.0; seg.brakeOut=8.5;
+    }
+    document.querySelectorAll('[data-motion-preset]').forEach(x=>x.classList.toggle('active',x===btn));
+    refreshUI();
+    setStatus('MOTION · '+preset.toUpperCase());
+  });
+});
+
+window.addEventListener('keydown',e=>{
+  const tag=document.activeElement?.tagName;
+  if(tag==='INPUT' || tag==='BUTTON' || tag==='SUMMARY') return;
+  if(e.code==='Space'){
+    e.preventDefault();
+    ui.play.click();
+    syncPlayLabels();
+  }
+  if(e.key==='0'){
+    ui.origin.click();
+  }
 });
 ui.timeline.addEventListener('input',e=>{stopPlayback();controls.enabled=true;playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
 
@@ -642,12 +686,12 @@ function animate(ts){
         }else if(looping){
           currentShotIndex=0;sequenceIndex=0;selectedPoint=0;selectedSegment=0;playhead=0;setTargetMarker();refreshUI();
         }else{
-          playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play selected shot';setStatus('SEQUENCE FINISHED');
+          playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play selected shot';syncPlayLabels();setStatus('SEQUENCE FINISHED');
         }
       }else if(looping){
         playhead=0;
       }else{
-        playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play selected shot';setStatus('SHOT FINISHED');
+        playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play selected shot';syncPlayLabels();setStatus('SHOT FINISHED');
       }
     }
     if(playing || playhead<=shotDuration()) applyCameraState(cameraStateAt(shot(),playhead));
