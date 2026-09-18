@@ -9,6 +9,7 @@ const cloneData = (v) => JSON.parse(JSON.stringify(v));
 const ui = {
   stage: $('stage'),
   canvas: $('scene'),
+  frameOverlay: $('frameOverlay'),
   status: $('status'),
   loading: $('loading'),
   error: $('error'),
@@ -41,7 +42,14 @@ const ui = {
   totalReadout: $('totalReadout'),
   importGlb: $('importGlb'),
   importGlbInput: $('importGlbInput'),
-  homeView: $('homeView')
+  homeView: $('homeView'),
+  qApply: $('qApply'),
+  qHorizontal: $('qHorizontal'),
+  qPan: $('qPan'),
+  qVertical: $('qVertical'),
+  qTilt: $('qTilt'),
+  qZoom: $('qZoom'),
+  qRotate: $('qRotate')
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -73,6 +81,7 @@ controls.maxPolarAngle = Math.PI * 0.49;
 
 const topCtx = ui.top.getContext('2d');
 const sideCtx = ui.side.getContext('2d');
+const frameCtx = ui.frameOverlay.getContext('2d');
 
 const room = new THREE.Group();
 room.name = 'Demo Living Room';
@@ -268,7 +277,9 @@ let pointerDown = null;
 function shot(){ return shots[currentShotIndex]; }
 function targetFor(s=shot()){
   const def=targetDefs[s.targetId] || targetDefs.room;
-  return def.position;
+  const out=def.position.clone();
+  if(Array.isArray(s.lookOffset)) out.add(new THREE.Vector3(...s.lookOffset));
+  return out;
 }
 function relabelPoints(s=shot()){
   s.pointLabels = s.points.map((_,i)=>String.fromCharCode(65+i));
@@ -353,7 +364,7 @@ function cameraStateAt(s,time){
   const hit=segmentAtTime(s,clamp(time,0,shotDuration(s)));
   const u=smoothSegmentWarp(s,hit.i,hit.local);
   const p=posOnSegment(s,hit.i,u);
-  return {position:new THREE.Vector3(...p), target:targetFor(s).clone(), segment:hit.i, u};
+  return {position:new THREE.Vector3(...p), target:targetFor(s).clone(), roll:s.roll||0, segment:hit.i, u};
 }
 function samplePath(s=shot(),count=180){
   const total=shotDuration(s),arr=[];
@@ -365,6 +376,7 @@ function applyCameraState(state){
   camera.lookAt(state.target);
   controls.target.copy(state.target);
   controls.update();
+  if(state.roll) camera.rotateZ(state.roll);
 }
 
 function setTargetMarker(){
@@ -487,6 +499,16 @@ ui.brakeOut.addEventListener('input',e=>setSegment('brakeOut',e.target.value));
 function pointDistance(a,b){
   return Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2]);
 }
+function autoHeightForXY(s,x,z){
+  const n=s.points.length,last=s.points[n-1];
+  if(n<2) return last?.[1]??1.7;
+  const prev=s.points[n-2];
+  const prevHorizontal=Math.hypot(last[0]-prev[0],last[2]-prev[2]);
+  const nextHorizontal=Math.hypot(x-last[0],z-last[2]);
+  if(prevHorizontal<.15) return last[1];
+  const slope=(last[1]-prev[1])/prevHorizontal;
+  return clamp(last[1]+slope*nextHorizontal,.65,3.3);
+}
 function appendPathPoint(s,p){
   const n=s.points.length;
   const previousSegment=s.segments[s.segments.length-1] || {duration:1.8,speed:1,accelIn:3,brakeOut:3};
@@ -596,15 +618,76 @@ window.addEventListener('keydown',e=>{
     ui.origin.click();
   }
 });
+const quickAxes=[
+  ['Horizontal',ui.qHorizontal,$('qHorizontalVal')],
+  ['Pan',ui.qPan,$('qPanVal')],
+  ['Vertical',ui.qVertical,$('qVerticalVal')],
+  ['Tilt',ui.qTilt,$('qTiltVal')],
+  ['Zoom',ui.qZoom,$('qZoomVal')],
+  ['Rotate',ui.qRotate,$('qRotateVal')]
+];
+function quickValue(el){return +(el?.value||0)}
+function drawFrameOverlay(){
+  if(!frameCtx || !ui.frameOverlay)return;
+  const r=ui.stage.getBoundingClientRect(),w=r.width,h=r.height;
+  frameCtx.clearRect(0,0,w,h);
+  if(playing)return;
+  const horizontal=quickValue(ui.qHorizontal),pan=quickValue(ui.qPan),vertical=quickValue(ui.qVertical),tilt=quickValue(ui.qTilt),zoom=quickValue(ui.qZoom),rotate=quickValue(ui.qRotate);
+  const active=Math.abs(horizontal)+Math.abs(pan)+Math.abs(vertical)+Math.abs(tilt)+Math.abs(zoom)+Math.abs(rotate);
+  if(active<.05)return;
+  for(let i=1;i<=7;i++){
+    const t=i/7;
+    const scale=1+zoom*.025*t;
+    const fw=w*.34*scale,fh=h*.38*scale;
+    const cx=w*.5+(horizontal*.010*w*t)+(pan*.008*w*t*t);
+    const cy=h*.46-(vertical*.012*h*t)-(tilt*.008*h*t*t);
+    frameCtx.save();
+    frameCtx.translate(cx,cy);
+    frameCtx.rotate(rotate*Math.PI/180*1.3*t);
+    frameCtx.strokeStyle=i===7?'rgba(221,183,247,.95)':'rgba(200,151,233,'+(.14+i*.065)+')';
+    frameCtx.lineWidth=i===7?1.6:1;
+    frameCtx.strokeRect(-fw/2,-fh/2,fw,fh);
+    frameCtx.restore();
+  }
+}
+quickAxes.forEach(([name,el,out])=>{
+  el?.addEventListener('input',()=>{
+    if(out)out.textContent=(+el.value).toFixed(1);
+    drawFrameOverlay();
+  });
+});
+ui.qApply?.addEventListener('click',()=>{
+  stopPlayback();controls.enabled=true;
+  const s=shot(),last=s.points[s.points.length-1],tar=targetFor(s);
+  const from=new THREE.Vector3(...last),forward=tar.clone().sub(from).normalize();
+  const right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0)).normalize();
+  const h=quickValue(ui.qHorizontal),v=quickValue(ui.qVertical),z=quickValue(ui.qZoom),pan=quickValue(ui.qPan),tilt=quickValue(ui.qTilt),rot=quickValue(ui.qRotate);
+  const next=from.clone().addScaledVector(right,h*.22).addScaledVector(forward,z*.20);
+  next.y+=v*.16;
+  const lookOffset=right.clone().multiplyScalar(pan*.12);lookOffset.y+=tilt*.10;
+  s.lookOffset=lookOffset.toArray();
+  s.roll=THREE.MathUtils.degToRad(rot*1.6);
+  appendPathPoint(s,next.toArray());
+  playhead=shotDuration(s);
+  applyCameraState(cameraStateAt(s,playhead));
+  refreshTimeline();
+  setStatus('APPLIED · '+s.pointLabels[s.points.length-2]+'→'+s.pointLabels[s.points.length-1]);
+  drawFrameOverlay();
+});
+
 ui.timeline.addEventListener('input',e=>{stopPlayback();controls.enabled=true;playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
 
 ui.homeView.addEventListener('click',()=>{stopPlayback();controls.enabled=true;camera.position.set(0,2.8,9.2);controls.target.set(0,1.1,-.2);controls.update();setStatus('FREE VIEW')});
 
 function resizeRenderer(){
-  const r=ui.stage.getBoundingClientRect();
+  const r=ui.stage.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);
   renderer.setSize(r.width,r.height,false);
   camera.aspect=r.width/r.height;camera.updateProjectionMatrix();
+  ui.frameOverlay.width=Math.round(r.width*dpr);
+  ui.frameOverlay.height=Math.round(r.height*dpr);
+  frameCtx.setTransform(dpr,0,0,dpr,0,0);
   resizeMini(ui.top,topCtx);resizeMini(ui.side,sideCtx);
+  drawFrameOverlay();
 }
 function resizeMini(canvas,context){
   const r=canvas.parentElement.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);
@@ -626,16 +709,32 @@ function mapper(canvas,mode){
     unmap:(px,py)=>mode==='top'?[cx+(px-w/2)/scale,cy+(py-h/2)/scale]:[cx+(px-w/2)/scale,cy-(py-h/2)/scale]
   };
 }
+function drawProjectionRect(c,m,x,y,w,h,label,alpha=.12){
+  const a=m.map(x-w/2,y-h/2),b=m.map(x+w/2,y+h/2);
+  const left=Math.min(a[0],b[0]),top=Math.min(a[1],b[1]),rw=Math.abs(b[0]-a[0]),rh=Math.abs(b[1]-a[1]);
+  c.fillStyle='rgba(255,255,255,'+alpha+')';c.fillRect(left,top,rw,rh);
+  c.strokeStyle='rgba(255,255,255,.18)';c.lineWidth=1;c.strokeRect(left,top,rw,rh);
+  if(label){c.fillStyle='rgba(220,209,226,.56)';c.font='8px ui-monospace';c.fillText(label,left+4,top+10)}
+}
 function drawRoomTop(c,m){
-  c.strokeStyle='rgba(255,255,255,.13)';c.lineWidth=1;
-  const a=m.map(-5,-5),b=m.map(5,5);c.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);
-  const rect=(x,z,w,d)=>{const p=m.map(x-w/2,z-d/2),q=m.map(x+w/2,z+d/2);c.strokeRect(p[0],p[1],q[0]-p[0],q[1]-p[1])};
-  c.strokeStyle='rgba(255,255,255,.08)';rect(-.25,0,3.25,1.25);rect(.2,2,2.15,1.05);rect(3.25,-2.45,1.0,2.5);rect(-3.25,1.85,.8,.8);
+  const a=m.map(-5,-5),b=m.map(5,5);
+  c.fillStyle='rgba(255,255,255,.025)';c.fillRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));
+  c.strokeStyle='rgba(255,255,255,.22)';c.lineWidth=1.2;c.strokeRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));
+  drawProjectionRect(c,m,-.25,0,3.25,1.25,'SOFA',.10);
+  drawProjectionRect(c,m,.2,2,2.15,1.05,'TABLE',.08);
+  drawProjectionRect(c,m,3.25,-2.45,.65,2.5,'TV',.08);
+  drawProjectionRect(c,m,-3.25,1.85,.8,.8,'PLANT',.07);
+  const wa=m.map(-4.7,-4.94),wb=m.map(-2.0,-4.94);c.strokeStyle='rgba(166,205,229,.68)';c.lineWidth=3;c.beginPath();c.moveTo(...wa);c.lineTo(...wb);c.stroke();
 }
 function drawRoomSide(c,m){
-  c.strokeStyle='rgba(255,255,255,.13)';c.lineWidth=1;
-  const a=m.map(-5,0),b=m.map(8,0);c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();
-  const ceilA=m.map(-5,3.25),ceilB=m.map(8,3.25);c.strokeStyle='rgba(255,255,255,.06)';c.beginPath();c.moveTo(ceilA[0],ceilA[1]);c.lineTo(ceilB[0],ceilB[1]);c.stroke();
+  const floorA=m.map(-5,0),floorB=m.map(8,0),ceilA=m.map(-5,3.25),ceilB=m.map(8,3.25);
+  c.strokeStyle='rgba(255,255,255,.22)';c.lineWidth=1.2;c.beginPath();c.moveTo(...floorA);c.lineTo(...floorB);c.stroke();
+  c.strokeStyle='rgba(255,255,255,.10)';c.beginPath();c.moveTo(...ceilA);c.lineTo(...ceilB);c.stroke();
+  drawProjectionRect(c,m,0,.67,1.25,1.18,'SOFA',.09);
+  drawProjectionRect(c,m,2,.35,1.05,.68,'TABLE',.07);
+  drawProjectionRect(c,m,-2.45,.9,.65,1.8,'TV',.07);
+  drawProjectionRect(c,m,1.85,1.05,.8,2.1,'PLANT',.06);
+  const wa=m.map(-4.95,.78),wb=m.map(-4.95,2.62);c.strokeStyle='rgba(166,205,229,.68)';c.lineWidth=3;c.beginPath();c.moveTo(...wa);c.lineTo(...wb);c.stroke();
 }
 function drawMini(context,canvas,mode){
   const m=mapper(canvas,mode),s=shot(),path=samplePath(s,180);
@@ -656,6 +755,11 @@ function drawMini(context,canvas,mode){
   });
   const cp=mode==='top'?m.map(camera.position.x,camera.position.z):m.map(camera.position.z,camera.position.y);context.fillStyle='#ffe08b';context.beginPath();context.arc(cp[0],cp[1],4,0,Math.PI*2);context.fill();
   const tar=targetFor();const tp=mode==='top'?m.map(tar.x,tar.z):m.map(tar.z,tar.y);context.fillStyle='#ffffff';context.beginPath();context.arc(tp[0],tp[1],3,0,Math.PI*2);context.fill();
+  if(mode==='side' && s.points[selectedPoint]){
+    const p=s.points[selectedPoint],q=m.map(p[2],p[1]);
+    context.strokeStyle='rgba(255,224,139,.28)';context.setLineDash([3,3]);context.beginPath();context.moveTo(0,q[1]);context.lineTo(m.w,q[1]);context.stroke();context.setLineDash([]);
+    context.fillStyle='#ffe08b';context.font='9px ui-monospace';context.fillText('H '+p[1].toFixed(2)+'m',Math.min(m.w-54,q[0]+10),Math.max(16,q[1]-8));
+  }
 }
 function localXY(e,canvas){const r=canvas.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]}
 function hitPoint(canvas,mode,x,y){
@@ -671,8 +775,8 @@ function bindMini(canvas,mode){
       selectedPoint=hit;selectedSegment=Math.min(hit,shot().segments.length-1);drag={mode,index:hit};canvas.setPointerCapture(e.pointerId);refreshUI();return;
     }
     if(mode==='top'){
-      const m=mapper(canvas,mode),v=m.unmap(x,y),s=shot(),last=s.points[s.points.length-1];
-      appendPathPoint(s,[v[0],last?.[1]??1.7,v[1]]);
+      const m=mapper(canvas,mode),v=m.unmap(x,y),s=shot();
+      appendPathPoint(s,[v[0],autoHeightForXY(s,v[0],v[1]),v[1]]);
     }
   });
   canvas.addEventListener('pointermove',e=>{
@@ -760,6 +864,7 @@ function animate(ts){
   }
   drawMini(topCtx,ui.top,'top');
   drawMini(sideCtx,ui.side,'side');
+  drawFrameOverlay();
   renderer.render(scene,camera);
   requestAnimationFrame(animate);
 }
