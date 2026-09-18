@@ -19,9 +19,10 @@
   <header class="topbar">
     <div class="brand">
       <strong>Camera Control</strong>
-      <span>REAL 3D SCENE · PATH + SHOTS</span>
+      <span>REAL 3D SCENE</span>
     </div>
     <div class="top-actions">
+      <span class="shortcut">Space · Play/Pause</span>
       <button class="ghost-btn" id="homeView" type="button">Free view</button>
       <button class="ghost-btn" id="importGlb" type="button">Import GLB</button>
       <input class="file-input" id="importGlbInput" type="file" accept=".glb,model/gltf-binary">
@@ -32,21 +33,26 @@
     <section class="stage-card">
       <div class="stage" id="stage">
         <canvas id="scene"></canvas>
-        <div class="badge" id="status">REAL 3D SCENE</div>
-        <div class="scene-hint">Drag to orbit · wheel to zoom · click furniture to retarget</div>
-        <div class="viewport-tools">
-          <button id="sceneGuide" type="button" disabled>Living room demo</button>
+
+        <div class="stage-top">
+          <div class="badge" id="status">READY</div>
+          <div class="scene-hint">Drag to look around · wheel to zoom · click furniture to focus</div>
+        </div>
+
+        <div class="stage-actions">
+          <button id="quickPlay" type="button">▶ Preview shot</button>
+          <button id="quickStart" type="button">⌂ Start</button>
         </div>
 
         <div class="mini-views">
           <div class="mini-view">
             <canvas id="topView"></canvas>
-            <div class="mini-label">TOP VIEW · editable trajectory</div>
+            <div class="mini-label">TOP · edit path</div>
             <div class="mini-help">drag points · click empty space to add</div>
           </div>
           <div class="mini-view">
             <canvas id="sideView"></canvas>
-            <div class="mini-label">SIDE VIEW · editable height</div>
+            <div class="mini-label">SIDE · edit height</div>
             <div class="mini-help">drag points vertically</div>
           </div>
         </div>
@@ -57,95 +63,113 @@
     </section>
 
     <aside class="panel">
-      <h1>Compose inside a real room.</h1>
-      <p class="lede">Choose a shot, pick the object you want the camera to care about, reshape the path, then tune timing segment by segment.</p>
+      <div class="panel-head">
+        <h1>Build the shot in 4 moves.</h1>
+        <p>Pick a shot, choose what to look at, shape the path, then tune the motion.</p>
+      </div>
 
-      <section class="section">
+      <nav class="workflow" aria-label="Camera workflow">
+        <span><b>1</b> Shot</span>
+        <span><b>2</b> Target</span>
+        <span><b>3</b> Path</span>
+        <span><b>4</b> Motion</span>
+      </nav>
+
+      <section class="section step-section">
         <div class="section-head">
-          <strong>Shots</strong>
-          <span>cut between authored camera moves</span>
+          <div class="step-title"><b>1</b><strong>Choose a shot</strong></div>
+          <span>switch instantly</span>
         </div>
         <div class="shots" id="shots"></div>
       </section>
 
-      <section class="section">
+      <section class="section step-section">
         <div class="section-head">
-          <strong>Target scene</strong>
-          <span>look-at anchor</span>
+          <div class="step-title"><b>2</b><strong>Pick the subject</strong></div>
+          <span>or click it in 3D</span>
         </div>
         <div class="targets" id="targets"></div>
         <div class="target-meta" id="targetMeta"></div>
       </section>
 
-      <section class="section">
-        <div class="section-head">
-          <strong>Camera points</strong>
-          <span>position keyframes</span>
+      <details class="section fold" open>
+        <summary>
+          <span class="step-title"><b>3</b><strong>Shape the path</strong></span>
+          <span class="summary-note">drag below</span>
+        </summary>
+        <div class="fold-body">
+          <div class="path-note">Use the two maps on the left. Select a point here when you want precise control.</div>
+          <div class="points" id="points"></div>
+          <div class="row-actions">
+            <button class="mini-btn" id="addPoint" type="button">+ Add point</button>
+            <button class="mini-btn" id="deletePoint" type="button">Delete point</button>
+          </div>
         </div>
-        <div class="points" id="points"></div>
-        <div class="row-actions">
-          <button class="mini-btn" id="addPoint" type="button">+ Add after selected</button>
-          <button class="mini-btn" id="deletePoint" type="button">Delete selected</button>
-        </div>
-      </section>
+      </details>
 
-      <section class="section">
+      <section class="section step-section motion-section">
         <div class="section-head">
-          <strong>Segment timing</strong>
-          <span id="segmentLabel">between keyframes</span>
+          <div class="step-title"><b>4</b><strong>Tune the motion</strong></div>
+          <span>per segment · no node stop</span>
         </div>
+
         <div class="segments" id="segments"></div>
 
-        <div class="timing">
-          <div class="control">
-            <div class="control-head">
-              <label for="duration">Duration</label>
-              <span class="value" id="durationVal">2.0 s</span>
-            </div>
-            <input id="duration" type="range" min=".5" max="8" step=".1" value="2">
-            <div class="range-note"><span>0.5 s</span><span>8 s</span></div>
-          </div>
+        <div class="motion-presets" aria-label="Motion presets">
+          <button type="button" data-motion-preset="smooth">Smooth</button>
+          <button type="button" data-motion-preset="cruise">Cruise</button>
+          <button type="button" data-motion-preset="arrive">Soft arrive</button>
+        </div>
 
+        <div class="timing primary-timing">
           <div class="control">
             <div class="control-head">
               <label for="speed">Speed</label>
               <span class="value" id="speedVal">1.00×</span>
             </div>
             <input id="speed" type="range" min=".25" max="3" step=".05" value="1">
-            <div class="range-note"><span>0.25×</span><span>3×</span></div>
+            <div class="range-note"><span>slow</span><span>fast</span></div>
           </div>
 
           <div class="control">
             <div class="control-head">
-              <label for="accelIn">Accel In</label>
-              <span class="value" id="accelInVal">5.0</span>
+              <label for="duration">Duration</label>
+              <span class="value" id="durationVal">2.0 s</span>
             </div>
-            <input id="accelIn" type="range" min="0" max="10" step=".1" value="5">
-            <div class="range-note"><span>instant</span><span>slow launch</span></div>
-          </div>
-
-          <div class="control">
-            <div class="control-head">
-              <label for="brakeOut">Brake Out</label>
-              <span class="value" id="brakeOutVal">5.0</span>
-            </div>
-            <input id="brakeOut" type="range" min="0" max="10" step=".1" value="5">
-            <div class="range-note"><span>pass through</span><span>soft stop</span></div>
+            <input id="duration" type="range" min=".5" max="8" step=".1" value="2">
+            <div class="range-note"><span>short</span><span>long</span></div>
           </div>
         </div>
+
+        <details class="fine-tune">
+          <summary>Fine tune acceleration</summary>
+          <div class="timing">
+            <div class="control">
+              <div class="control-head">
+                <label for="accelIn">Acceleration in</label>
+                <span class="value" id="accelInVal">5.0</span>
+              </div>
+              <input id="accelIn" type="range" min="0" max="10" step=".1" value="5">
+              <div class="range-note"><span>instant</span><span>gentle</span></div>
+            </div>
+
+            <div class="control">
+              <div class="control-head">
+                <label for="brakeOut">Braking out</label>
+                <span class="value" id="brakeOutVal">5.0</span>
+              </div>
+              <input id="brakeOut" type="range" min="0" max="10" step=".1" value="5">
+              <div class="range-note"><span>pass through</span><span>soft arrive</span></div>
+            </div>
+          </div>
+        </details>
 
         <div class="segment-summary" id="segmentSummary"></div>
       </section>
 
       <div class="playback">
         <button class="primary" id="play" type="button">▶ Play selected shot</button>
-        <button class="sequence" id="playSequence" type="button">▶▶ Play full shot sequence</button>
-
-        <div class="play-actions">
-          <button id="loop" type="button">↻ Loop</button>
-          <button id="origin" type="button">⌂ Shot start</button>
-          <button id="reset" type="button">Reset demo</button>
-        </div>
+        <button class="sequence" id="playSequence" type="button">▶▶ Play all shots</button>
 
         <div class="timeline">
           <div class="timeline-head">
@@ -155,10 +179,10 @@
           <input id="timeline" type="range" min="0" max="1" step=".01" value="0">
         </div>
 
-        <div class="legend">
-          <span><i class="cam"></i>camera</span>
-          <span><i class="target"></i>target</span>
-          <span><i class="point"></i>keyframe</span>
+        <div class="play-actions">
+          <button id="loop" type="button">↻ Loop</button>
+          <button id="origin" type="button">⌂ Start</button>
+          <button id="reset" type="button">Reset</button>
         </div>
       </div>
     </aside>
