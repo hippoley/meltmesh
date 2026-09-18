@@ -49,7 +49,9 @@ const ui = {
   qVertical: $('qVertical'),
   qTilt: $('qTilt'),
   qZoom: $('qZoom'),
-  qRotate: $('qRotate')
+  qRotate: $('qRotate'),
+  qReset: $('qReset'),
+  heightHint: $('heightHint')
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -398,6 +400,7 @@ function switchShot(index,snap=true){
   setTargetMarker();
   refreshUI();
   if(snap) applyCameraState(cameraStateAt(shot(),0));
+  resetQuickControls();
   setStatus('SHOT · '+shot().name.toUpperCase());
 }
 
@@ -562,7 +565,7 @@ ui.deletePoint.addEventListener('click',()=>{
 });
 
 ui.origin.addEventListener('click',()=>{stopPlayback();playhead=0;applyCameraState(cameraStateAt(shot(),0));refreshTimeline();setStatus('SHOT START')});
-ui.reset.addEventListener('click',()=>{stopPlayback();shots=cloneData(defaultShots);shots.forEach(relabelPoints);currentShotIndex=0;selectedPoint=0;selectedSegment=0;playhead=0;setTargetMarker();refreshUI();applyCameraState(cameraStateAt(shot(),0));setStatus('DEMO RESET')});
+ui.reset.addEventListener('click',()=>{stopPlayback();shots=cloneData(defaultShots);shots.forEach(relabelPoints);currentShotIndex=0;selectedPoint=0;selectedSegment=0;playhead=0;setTargetMarker();refreshUI();applyCameraState(cameraStateAt(shot(),0));resetQuickControls();if(ui.heightHint)ui.heightHint.textContent='height auto';setStatus('DEMO RESET')});
 ui.loop.addEventListener('click',()=>{looping=!looping;ui.loop.classList.toggle('active',looping);ui.loop.textContent=looping?'↻ Loop ON':'↻ Loop'});
 ui.play.addEventListener('click',()=>{
   playbackMode='shot';
@@ -627,52 +630,101 @@ const quickAxes=[
   ['Rotate',ui.qRotate,$('qRotateVal')]
 ];
 function quickValue(el){return +(el?.value||0)}
+function quickActive(){
+  return quickAxes.some(([,el])=>Math.abs(quickValue(el))>.05);
+}
+function quickPreviewState(s=shot()){
+  const last=s.points[s.points.length-1],tar=targetFor(s);
+  const from=new THREE.Vector3(...last);
+  const forward=tar.clone().sub(from).normalize();
+  let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
+  if(right.lengthSq()<1e-6) right.set(1,0,0); else right.normalize();
+
+  const h=quickValue(ui.qHorizontal),v=quickValue(ui.qVertical),z=quickValue(ui.qZoom);
+  const pan=quickValue(ui.qPan),tilt=quickValue(ui.qTilt),rot=quickValue(ui.qRotate);
+
+  const next=from.clone().addScaledVector(right,h*.22).addScaledVector(forward,z*.20);
+  next.y=clamp(next.y+v*.16,.35,3.7);
+
+  const lookOffset=right.clone().multiplyScalar(pan*.12);
+  lookOffset.y+=tilt*.10;
+
+  return {
+    next,
+    lookOffset,
+    roll:THREE.MathUtils.degToRad(rot*1.6),
+    h,v,z,pan,tilt,rot
+  };
+}
+function resetQuickControls(){
+  quickAxes.forEach(([,el,out])=>{
+    if(el)el.value='0';
+    if(out)out.textContent='0.0';
+  });
+  drawFrameOverlay();
+}
 function drawFrameOverlay(){
   if(!frameCtx || !ui.frameOverlay)return;
   const r=ui.stage.getBoundingClientRect(),w=r.width,h=r.height;
   frameCtx.clearRect(0,0,w,h);
   if(playing)return;
-  const horizontal=quickValue(ui.qHorizontal),pan=quickValue(ui.qPan),vertical=quickValue(ui.qVertical),tilt=quickValue(ui.qTilt),zoom=quickValue(ui.qZoom),rotate=quickValue(ui.qRotate);
-  const active=Math.abs(horizontal)+Math.abs(pan)+Math.abs(vertical)+Math.abs(tilt)+Math.abs(zoom)+Math.abs(rotate);
-  if(active<.05)return;
+
+  const p=quickPreviewState();
+  const active=quickActive();
+
+  // Reference-source interaction: the current frame stays fixed while
+  // intermediate and end frames explain the intended move.
+  const baseW=w*.36,baseH=h*.40,baseX=w*.5,baseY=h*.47;
+  frameCtx.save();
+  frameCtx.strokeStyle='rgba(255,255,255,.42)';
+  frameCtx.lineWidth=1;
+  frameCtx.strokeRect(baseX-baseW/2,baseY-baseH/2,baseW,baseH);
+  frameCtx.restore();
+
+  if(!active)return;
+
   for(let i=1;i<=7;i++){
     const t=i/7;
-    const scale=1+zoom*.025*t;
-    const fw=w*.34*scale,fh=h*.38*scale;
-    const cx=w*.5+(horizontal*.010*w*t)+(pan*.008*w*t*t);
-    const cy=h*.46-(vertical*.012*h*t)-(tilt*.008*h*t*t);
+    const eased=t*t*(3-2*t);
+    const scale=1+p.z*.024*eased;
+    const fw=baseW*scale,fh=baseH*scale;
+    const cx=baseX+(p.h*.010*w*eased)+(p.pan*.0075*w*eased*eased);
+    const cy=baseY-(p.v*.012*h*eased)-(p.tilt*.008*h*eased*eased);
     frameCtx.save();
     frameCtx.translate(cx,cy);
-    frameCtx.rotate(rotate*Math.PI/180*1.3*t);
-    frameCtx.strokeStyle=i===7?'rgba(221,183,247,.95)':'rgba(200,151,233,'+(.14+i*.065)+')';
-    frameCtx.lineWidth=i===7?1.6:1;
+    frameCtx.rotate(p.rot*Math.PI/180*1.3*eased);
+    frameCtx.strokeStyle=i===7?'rgba(220,170,248,.98)':'rgba(194,126,230,'+(.12+i*.075)+')';
+    frameCtx.lineWidth=i===7?1.8:1;
     frameCtx.strokeRect(-fw/2,-fh/2,fw,fh);
     frameCtx.restore();
   }
 }
-quickAxes.forEach(([name,el,out])=>{
+quickAxes.forEach(([,el,out])=>{
   el?.addEventListener('input',()=>{
     if(out)out.textContent=(+el.value).toFixed(1);
     drawFrameOverlay();
   });
 });
+ui.qReset?.addEventListener('click',()=>{
+  resetQuickControls();
+  setStatus('MOVE · RESET');
+});
 ui.qApply?.addEventListener('click',()=>{
+  if(!quickActive()){
+    setStatus('MOVE · SET A DIRECTION');
+    return;
+  }
   stopPlayback();controls.enabled=true;
-  const s=shot(),last=s.points[s.points.length-1],tar=targetFor(s);
-  const from=new THREE.Vector3(...last),forward=tar.clone().sub(from).normalize();
-  const right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0)).normalize();
-  const h=quickValue(ui.qHorizontal),v=quickValue(ui.qVertical),z=quickValue(ui.qZoom),pan=quickValue(ui.qPan),tilt=quickValue(ui.qTilt),rot=quickValue(ui.qRotate);
-  const next=from.clone().addScaledVector(right,h*.22).addScaledVector(forward,z*.20);
-  next.y+=v*.16;
-  const lookOffset=right.clone().multiplyScalar(pan*.12);lookOffset.y+=tilt*.10;
-  s.lookOffset=lookOffset.toArray();
-  s.roll=THREE.MathUtils.degToRad(rot*1.6);
-  appendPathPoint(s,next.toArray());
+  const s=shot(),preview=quickPreviewState(s);
+  s.lookOffset=preview.lookOffset.toArray();
+  s.roll=preview.roll;
+  appendPathPoint(s,preview.next.toArray());
   playhead=shotDuration(s);
   applyCameraState(cameraStateAt(s,playhead));
   refreshTimeline();
+  if(ui.heightHint) ui.heightHint.textContent='height '+preview.next.y.toFixed(2)+' m';
   setStatus('APPLIED · '+s.pointLabels[s.points.length-2]+'→'+s.pointLabels[s.points.length-1]);
-  drawFrameOverlay();
+  resetQuickControls();
 });
 
 ui.timeline.addEventListener('input',e=>{stopPlayback();controls.enabled=true;playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
@@ -753,6 +805,22 @@ function drawMini(context,canvas,mode){
     }
     context.fillStyle='#c9bacf';context.font='9px ui-monospace';context.fillText(s.pointLabels[i],q[0]+7,q[1]-6)
   });
+  if(quickActive()){
+    const preview=quickPreviewState(s),last=s.points[s.points.length-1];
+    const a=mode==='top'?m.map(last[0],last[2]):m.map(last[2],last[1]);
+    const b=mode==='top'?m.map(preview.next.x,preview.next.z):m.map(preview.next.z,preview.next.y);
+    context.strokeStyle='rgba(255,224,139,.72)';
+    context.lineWidth=1.2;
+    context.setLineDash([4,4]);
+    context.beginPath();context.moveTo(...a);context.lineTo(...b);context.stroke();
+    context.setLineDash([]);
+    context.fillStyle='#ffe08b';
+    context.beginPath();context.arc(b[0],b[1],4.5,0,Math.PI*2);context.fill();
+    if(mode==='side'){
+      context.fillStyle='#ffe08b';context.font='9px ui-monospace';
+      context.fillText('PREVIEW '+preview.next.y.toFixed(2)+'m',Math.min(m.w-92,b[0]+9),Math.max(18,b[1]-7));
+    }
+  }
   const cp=mode==='top'?m.map(camera.position.x,camera.position.z):m.map(camera.position.z,camera.position.y);context.fillStyle='#ffe08b';context.beginPath();context.arc(cp[0],cp[1],4,0,Math.PI*2);context.fill();
   const tar=targetFor();const tp=mode==='top'?m.map(tar.x,tar.z):m.map(tar.z,tar.y);context.fillStyle='#ffffff';context.beginPath();context.arc(tp[0],tp[1],3,0,Math.PI*2);context.fill();
   if(mode==='side' && s.points[selectedPoint]){
@@ -772,19 +840,29 @@ function bindMini(canvas,mode){
     stopPlayback();controls.enabled=true;
     const [x,y]=localXY(e,canvas),hit=hitPoint(canvas,mode,x,y);
     if(hit>=0){
-      selectedPoint=hit;selectedSegment=Math.min(hit,shot().segments.length-1);drag={mode,index:hit};canvas.setPointerCapture(e.pointerId);refreshUI();return;
+      selectedPoint=hit;selectedSegment=Math.min(hit,shot().segments.length-1);drag={mode,index:hit};canvas.setPointerCapture(e.pointerId);
+      if(ui.heightHint) ui.heightHint.textContent='height '+shot().points[hit][1].toFixed(2)+' m';
+      refreshUI();return;
     }
     if(mode==='top'){
       const m=mapper(canvas,mode),v=m.unmap(x,y),s=shot();
-      appendPathPoint(s,[v[0],autoHeightForXY(s,v[0],v[1]),v[1]]);
+      const autoY=autoHeightForXY(s,v[0],v[1]);
+      appendPathPoint(s,[v[0],autoY,v[1]]);
+      if(ui.heightHint) ui.heightHint.textContent='AUTO · '+autoY.toFixed(2)+' m';
+      setStatus('AUTO HEIGHT · '+autoY.toFixed(2)+'m');
     }
   });
   canvas.addEventListener('pointermove',e=>{
     if(!drag)return;
     const [x,y]=localXY(e,canvas),m=mapper(canvas,mode),v=m.unmap(x,y),p=shot().points[drag.index];
-    if(mode==='top'){p[0]=clamp(v[0],-5.2,5.2);p[2]=clamp(v[1],-5.2,7.8)}
-    else{p[2]=clamp(v[0],-5.2,7.8);p[1]=clamp(v[1],.35,3.7)}
-    refreshUI();setStatus('EDIT POINT · '+shot().pointLabels[drag.index]);
+    if(mode==='top'){
+      p[0]=clamp(v[0],-5.2,5.2);
+      p[2]=clamp(v[1],-5.2,7.8);
+    }else{
+      p[1]=clamp(v[1],.35,3.7);
+      if(ui.heightHint) ui.heightHint.textContent='height '+p[1].toFixed(2)+' m';
+    }
+    refreshUI();setStatus(mode==='side'?'HEIGHT · '+p[1].toFixed(2)+'m':'EDIT POINT · '+shot().pointLabels[drag.index]);
   });
   const end=e=>{if(!drag)return;drag=null;try{canvas.releasePointerCapture(e.pointerId)}catch{}setStatus('EDIT PATH')};
   canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);
