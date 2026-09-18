@@ -391,26 +391,34 @@ function switchShot(index,snap=true){
 function renderShots(){
   ui.shots.innerHTML='';
   shots.forEach((s,i)=>{
-    const b=document.createElement('button');
-    b.type='button'; b.className='shot-card'+(i===currentShotIndex?' active':'');
-    b.innerHTML='<strong>'+s.name+'</strong><small>'+targetDefs[s.targetId]?.label+' · '+shotDuration(s).toFixed(1)+'s</small>';
-    b.addEventListener('click',()=>switchShot(i,true));
-    ui.shots.appendChild(b);
+    const o=document.createElement('option');
+    o.value=String(i);
+    o.textContent=s.name+' · '+(targetDefs[s.targetId]?.label||'Target')+' · '+shotDuration(s).toFixed(1)+'s';
+    o.selected=i===currentShotIndex;
+    ui.shots.appendChild(o);
   });
+  ui.shots.onchange=()=>switchShot(+ui.shots.value,true);
 }
 function renderTargets(){
   ui.targets.innerHTML='';
   Object.values(targetDefs).forEach(def=>{
-    const b=document.createElement('button');
-    b.type='button'; b.className='chip'+(shot().targetId===def.id?' active':'');
-    b.textContent=def.label;
-    b.addEventListener('click',()=>{
-      shot().targetId=def.id; setTargetMarker(); refreshUI(); applyCameraState(cameraStateAt(shot(),playhead)); setStatus('TARGET · '+def.label.toUpperCase());
-    });
-    ui.targets.appendChild(b);
+    const o=document.createElement('option');
+    o.value=def.id;
+    o.textContent=def.label;
+    o.selected=shot().targetId===def.id;
+    ui.targets.appendChild(o);
   });
+  ui.targets.onchange=()=>{
+    const def=targetDefs[ui.targets.value];
+    if(!def)return;
+    shot().targetId=def.id;
+    setTargetMarker();
+    refreshUI();
+    applyCameraState(cameraStateAt(shot(),playhead));
+    setStatus('TARGET · '+def.label.toUpperCase());
+  };
   const def=targetDefs[shot().targetId];
-  ui.targetMeta.textContent=def.label+' · ['+def.position.toArray().map(v=>v.toFixed(2)).join(', ')+'] · click an object in 3D to retarget';
+  ui.targetMeta.textContent='Click an object in 3D to refocus · ['+def.position.toArray().map(v=>v.toFixed(2)).join(', ')+']';
 }
 function renderPoints(){
   ui.points.innerHTML='';
@@ -426,12 +434,17 @@ function renderPoints(){
 function renderSegments(){
   ui.segments.innerHTML='';
   shot().segments.forEach((seg,i)=>{
-    const b=document.createElement('button');
-    b.type='button'; b.className='segment-card'+(i===selectedSegment?' active':'');
-    b.innerHTML='<strong>'+shot().pointLabels[i]+'→'+shot().pointLabels[i+1]+'</strong><small>'+effectiveDuration(seg).toFixed(2)+'s</small>';
-    b.addEventListener('click',()=>{selectedSegment=i;selectedPoint=i;refreshUI()});
-    ui.segments.appendChild(b);
+    const o=document.createElement('option');
+    o.value=String(i);
+    o.textContent=shot().pointLabels[i]+' → '+shot().pointLabels[i+1]+' · '+effectiveDuration(seg).toFixed(2)+'s';
+    o.selected=i===selectedSegment;
+    ui.segments.appendChild(o);
   });
+  ui.segments.onchange=()=>{
+    selectedSegment=+ui.segments.value;
+    selectedPoint=selectedSegment;
+    refreshUI();
+  };
 }
 function setRangePos(el,min,max){
   const p=((+el.value-min)/(max-min))*100;
@@ -445,7 +458,7 @@ function renderTiming(){
   ui.speedVal.textContent=seg.speed.toFixed(2)+'×';
   ui.accelInVal.textContent=seg.accelIn.toFixed(1);
   ui.brakeOutVal.textContent=seg.brakeOut.toFixed(1);
-  ui.segmentSummary.textContent=shot().pointLabels[selectedSegment]+'→'+shot().pointLabels[selectedSegment+1]+' · '+seg.duration.toFixed(1)+'s authored · '+effectiveDuration(seg).toFixed(2)+'s effective · junction velocity auto-smoothed';
+  ui.segmentSummary.textContent='Auto-smooths velocity through interior nodes · '+effectiveDuration(seg).toFixed(2)+'s effective';
 }
 function refreshTimeline(){
   const total=shotDuration();
