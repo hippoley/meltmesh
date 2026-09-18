@@ -21,6 +21,7 @@ const ui = {
   segments: $('segments'),
   duration: $('duration'),
   speed: $('speed'),
+  speedLabel: $('speedLabel'),
   accelIn: $('accelIn'),
   brakeOut: $('brakeOut'),
   durationVal: $('durationVal'),
@@ -375,7 +376,7 @@ function setStatus(text){ ui.status.textContent=text; }
 
 function stopPlayback(){
   playing=false;
-  ui.play.textContent='▶ Play selected shot';
+  ui.play.textContent='▶ Play';
   const q=$('quickPlay'); if(q) q.textContent='▶ Preview shot';
 }
 function switchShot(index,snap=true){
@@ -456,9 +457,10 @@ function renderTiming(){
   setRangePos(ui.duration,.5,8);setRangePos(ui.speed,.25,3);setRangePos(ui.accelIn,0,10);setRangePos(ui.brakeOut,0,10);
   ui.durationVal.textContent=seg.duration.toFixed(1)+' s';
   ui.speedVal.textContent=seg.speed.toFixed(2)+'×';
+  if(ui.speedLabel) ui.speedLabel.textContent='Speed '+shot().pointLabels[selectedSegment]+'→'+shot().pointLabels[selectedSegment+1];
   ui.accelInVal.textContent=seg.accelIn.toFixed(1);
   ui.brakeOutVal.textContent=seg.brakeOut.toFixed(1);
-  ui.segmentSummary.textContent='Auto-smooths velocity through interior nodes · '+effectiveDuration(seg).toFixed(2)+'s effective';
+  ui.segmentSummary.textContent='Smooth junction · '+effectiveDuration(seg).toFixed(2)+'s';
 }
 function refreshTimeline(){
   const total=shotDuration();
@@ -482,19 +484,40 @@ ui.speed.addEventListener('input',e=>setSegment('speed',e.target.value));
 ui.accelIn.addEventListener('input',e=>setSegment('accelIn',e.target.value));
 ui.brakeOut.addEventListener('input',e=>setSegment('brakeOut',e.target.value));
 
+function pointDistance(a,b){
+  return Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2]);
+}
 function appendPathPoint(s,p){
-  const previousSegment=s.segments[s.segments.length-1] || {duration:1.8,speed:1,accelIn:5,brakeOut:5};
-  s.points.push([
+  const n=s.points.length;
+  const previousSegment=s.segments[s.segments.length-1] || {duration:1.8,speed:1,accelIn:3,brakeOut:3};
+  const nextPoint=[
     clamp(p[0],-5.2,5.2),
     clamp(p[1],.35,3.7),
     clamp(p[2],-5.2,7.8)
-  ]);
-  s.segments.push({...previousSegment});
+  ];
+
+  // Preserve perceived travel speed automatically when the new leg is longer or shorter.
+  let worldSpeed=1.2;
+  if(n>=2 && s.segments.length){
+    const previousDistance=pointDistance(s.points[n-2],s.points[n-1]);
+    const previousTime=effectiveDuration(previousSegment);
+    if(previousDistance>.05 && previousTime>.05) worldSpeed=previousDistance/previousTime;
+  }
+  const newDistance=pointDistance(s.points[n-1],nextPoint);
+  const inheritedSpeed=previousSegment.speed || 1;
+  const autoDuration=clamp((newDistance/Math.max(.3,worldSpeed))*inheritedSpeed,.5,8);
+
+  s.points.push(nextPoint);
+  s.segments.push({
+    ...previousSegment,
+    duration:autoDuration,
+    speed:inheritedSpeed
+  });
   relabelPoints(s);
   selectedPoint=s.points.length-1;
   selectedSegment=s.segments.length-1;
   refreshUI();
-  setStatus('PATH EXTENDED · '+s.pointLabels[selectedPoint-1]+'→'+s.pointLabels[selectedPoint]);
+  setStatus('NEXT · '+s.pointLabels[selectedPoint-1]+'→'+s.pointLabels[selectedPoint]);
 }
 function nextContinuationPoint(s){
   const n=s.points.length,last=s.points[n-1],prev=s.points[Math.max(0,n-2)];
@@ -524,7 +547,7 @@ ui.play.addEventListener('click',()=>{
   if(playhead>=shotDuration())playhead=0;
   playing=!playing;
   controls.enabled=!playing;
-  ui.play.textContent=playing?'⏸ Pause selected shot':'▶ Play selected shot';
+  ui.play.textContent=playing?'⏸ Pause':'▶ Play';
   syncPlayLabels();
   setStatus(playing?'PLAYING · '+shot().name.toUpperCase():'PAUSED');
 });
@@ -722,12 +745,12 @@ function animate(ts){
         }else if(looping){
           currentShotIndex=0;sequenceIndex=0;selectedPoint=0;selectedSegment=0;playhead=0;setTargetMarker();refreshUI();
         }else{
-          playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play selected shot';syncPlayLabels();setStatus('SEQUENCE FINISHED');
+          playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play';syncPlayLabels();setStatus('SEQUENCE FINISHED');
         }
       }else if(looping){
         playhead=0;
       }else{
-        playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play selected shot';syncPlayLabels();setStatus('SHOT FINISHED');
+        playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play';syncPlayLabels();setStatus('SHOT FINISHED');
       }
     }
     if(playing || playhead<=shotDuration()) applyCameraState(cameraStateAt(shot(),playhead));
