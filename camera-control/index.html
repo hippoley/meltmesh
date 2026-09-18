@@ -29,6 +29,7 @@
     <section class="stage-card">
       <div class="stage" id="stage">
         <canvas id="scene"></canvas>
+        <canvas id="frameOverlay"></canvas>
 
         <div class="statusbar">
           <span id="status">READY</span>
@@ -52,11 +53,11 @@
       <div class="mini-views">
         <div class="mini-view">
           <canvas id="topView"></canvas>
-          <span>TOP · click to add next point</span>
+          <span>TOP · room projection · click = next point</span>
         </div>
         <div class="mini-view">
           <canvas id="sideView"></canvas>
-          <span>SIDE · drag height</span>
+          <span>SIDE · room projection · drag = height</span>
         </div>
       </div>
     </section>
@@ -73,26 +74,56 @@
       </label>
       <div class="target-meta" id="targetMeta"></div>
 
-      <div class="speed-control">
-        <div class="control-head">
-          <label id="speedLabel" for="speed">Speed</label>
-          <span id="speedVal">1.00×</span>
-        </div>
-        <input id="speed" type="range" min=".25" max="3" step=".05" value="1">
+      <div class="quick-move">
+        <div class="quick-title">Camera move</div>
+
+        <label class="quick-control">
+          <span>Horizontal <b id="qHorizontalVal">0.0</b></span>
+          <input id="qHorizontal" type="range" min="-10" max="10" step=".1" value="0">
+        </label>
+        <label class="quick-control">
+          <span>Pan <b id="qPanVal">0.0</b></span>
+          <input id="qPan" type="range" min="-10" max="10" step=".1" value="0">
+        </label>
+        <label class="quick-control">
+          <span>Vertical <b id="qVerticalVal">0.0</b></span>
+          <input id="qVertical" type="range" min="-10" max="10" step=".1" value="0">
+        </label>
+        <label class="quick-control">
+          <span>Tilt <b id="qTiltVal">0.0</b></span>
+          <input id="qTilt" type="range" min="-10" max="10" step=".1" value="0">
+        </label>
+        <label class="quick-control">
+          <span>Zoom <b id="qZoomVal">0.0</b></span>
+          <input id="qZoom" type="range" min="-10" max="10" step=".1" value="0">
+        </label>
+        <label class="quick-control">
+          <span>Rotate <b id="qRotateVal">0.0</b></span>
+          <input id="qRotate" type="range" min="-10" max="10" step=".1" value="0">
+        </label>
+
+        <button class="apply-move" id="qApply" type="button">Apply movement</button>
       </div>
 
-      <button class="continue-btn" id="addPoint" type="button">＋ Next point</button>
-
       <details class="advanced">
-        <summary>More</summary>
+        <summary>Path / timing</summary>
         <div class="advanced-body">
           <label class="field">
             <span>Move</span>
             <select id="segments"></select>
           </label>
 
-          <div class="points" id="points"></div>
+          <div class="speed-control">
+            <div class="control-head">
+              <label id="speedLabel" for="speed">Speed</label>
+              <span id="speedVal">1.00×</span>
+            </div>
+            <input id="speed" type="range" min=".25" max="3" step=".05" value="1">
+          </div>
 
+          <button class="continue-btn" id="addPoint" type="button">＋ Next point</button>
+
+          <div class="points" id="points"></div>
           <button class="delete-btn" id="deletePoint" type="button">Delete point</button>
 
           <div class="control">
