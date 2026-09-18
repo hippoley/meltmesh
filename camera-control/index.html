@@ -19,8 +19,8 @@
   <header class="topbar">
     <strong>Camera Control</strong>
     <div class="top-actions">
-      <button id="homeView" type="button">Free view</button>
-      <button id="importGlb" type="button">Import GLB</button>
+      <button id="homeView" type="button">Free</button>
+      <button id="importGlb" type="button">Import</button>
       <input id="importGlbInput" class="file-input" type="file" accept=".glb,model/gltf-binary">
     </div>
   </header>
@@ -32,32 +32,32 @@
 
         <div class="statusbar">
           <span id="status">READY</span>
-          <span>drag · zoom · click object to focus</span>
-        </div>
-
-        <div class="transport">
-          <button id="origin" type="button" title="Back to shot start">⌂</button>
-          <button class="play-main" id="play" type="button">▶ Play</button>
-          <div class="time-wrap">
-            <span id="readout">0.00 s</span>
-            <input id="timeline" type="range" min="0" max="1" step=".01" value="0">
-            <span id="totalReadout">0.00 s</span>
-          </div>
-        </div>
-
-        <div class="mini-views">
-          <div class="mini-view">
-            <canvas id="topView"></canvas>
-            <span>TOP · click empty space to continue path</span>
-          </div>
-          <div class="mini-view">
-            <canvas id="sideView"></canvas>
-            <span>SIDE · drag point to change height</span>
-          </div>
+          <span>drag · zoom · click object</span>
         </div>
 
         <div class="loading" id="loading">Building 3D room…</div>
         <div class="error" id="error"></div>
+      </div>
+
+      <div class="transport">
+        <button id="origin" type="button" title="Back to shot start">⌂</button>
+        <button class="play-main" id="play" type="button">▶ Play</button>
+        <div class="time-wrap">
+          <span id="readout">0.00</span>
+          <input id="timeline" type="range" min="0" max="1" step=".01" value="0">
+          <span id="totalReadout">0.00</span>
+        </div>
+      </div>
+
+      <div class="mini-views">
+        <div class="mini-view">
+          <canvas id="topView"></canvas>
+          <span>TOP · click to add next point</span>
+        </div>
+        <div class="mini-view">
+          <canvas id="sideView"></canvas>
+          <span>SIDE · drag height</span>
+        </div>
       </div>
     </section>
 
@@ -68,32 +68,32 @@
       </label>
 
       <label class="field">
-        <span>Focus</span>
+        <span>Look at</span>
         <select id="targets"></select>
       </label>
       <div class="target-meta" id="targetMeta"></div>
 
-      <label class="field">
-        <span>Move</span>
-        <select id="segments"></select>
-      </label>
-
       <div class="speed-control">
         <div class="control-head">
-          <label for="speed">Speed</label>
+          <label id="speedLabel" for="speed">Speed</label>
           <span id="speedVal">1.00×</span>
         </div>
         <input id="speed" type="range" min=".25" max="3" step=".05" value="1">
       </div>
 
-      <button class="continue-btn" id="addPoint" type="button">＋ Continue path</button>
+      <button class="continue-btn" id="addPoint" type="button">＋ Next point</button>
 
       <details class="advanced">
         <summary>More</summary>
         <div class="advanced-body">
+          <label class="field">
+            <span>Move</span>
+            <select id="segments"></select>
+          </label>
+
           <div class="points" id="points"></div>
 
-          <button class="delete-btn" id="deletePoint" type="button">Delete selected point</button>
+          <button class="delete-btn" id="deletePoint" type="button">Delete point</button>
 
           <div class="control">
             <div class="control-head"><label for="duration">Duration</label><span id="durationVal">2.0 s</span></div>
