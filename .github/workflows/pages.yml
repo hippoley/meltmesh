@@ -8,6 +8,7 @@ on:
       - 'styles.css'
       - '*.js'
       - 'vendor/**'
+      - 'camera-control/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -39,6 +40,7 @@ jobs:
           mkdir dist
           cp index.html styles.css app.js domain-router.js i18n.js three-renderer.js webgpu-renderer.js dist/
           cp -R vendor dist/vendor
+          cp -R camera-control dist/camera-control
           touch dist/.nojekyll
       - uses: actions/configure-pages@v5
         with:
