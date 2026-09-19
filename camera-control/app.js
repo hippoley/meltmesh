@@ -745,11 +745,11 @@ function updateMotionUI(){
 
   const visible=endpointActive();
   ui.ribbonHandle.style.opacity=visible?'1':'0';
-  ui.ribbonHandle.style.pointerEvents=visible?'auto':'none';
+  ui.ribbonHandle.style.pointerEvents='none';
   ui.ghostFrames.forEach((el,i)=>{
     positionMotionElement(el,motionState.rhythm[i]);
     el.style.opacity=visible?'1':'0';
-    el.style.pointerEvents=visible?'auto':'none';
+    el.style.pointerEvents='none';
   });
   ui.motionApply.disabled=!visible;
   ui.motionApply.style.opacity=visible?'1':'.45';
@@ -1003,7 +1003,8 @@ function beginMotionDrag(mode,e,index=-1){
     dx:motionState.dx,dy:motionState.dy,scale:motionState.scale,rot:motionState.rot,
     bendX:motionState.bendX,bendY:motionState.bendY,
     rhythm:[...motionState.rhythm],
-    centerX:g.baseX+motionState.dx,centerY:g.baseY+motionState.dy
+    centerX:g.baseX+motionState.dx,centerY:g.baseY+motionState.dy,
+    resizeDistance:Math.max(24,Math.hypot(e.clientX-(ui.stage.getBoundingClientRect().left+g.baseX+motionState.dx),e.clientY-(ui.stage.getBoundingClientRect().top+g.baseY+motionState.dy)))
   };
   try{e.currentTarget?.setPointerCapture?.(e.pointerId)}catch{}
   ui.motionUI?.classList.add('dragging');
@@ -1061,7 +1062,10 @@ window.addEventListener('pointermove',e=>{
     }
     inferGestureFromTrace(false);
   }else if(d.mode==='resize'){
-    const raw=clamp(d.scale+(dx-dy)*.0035,.58,1.7);
+    const r=ui.stage.getBoundingClientRect();
+    const cx=r.left+d.centerX,cy=r.top+d.centerY;
+    const distance=Math.max(18,Math.hypot(e.clientX-cx,e.clientY-cy));
+    const raw=clamp(d.scale*(distance/d.resizeDistance),.58,1.7);
     const snap=magnetic(raw,[.75,1,1.25,1.5],.065,.82);
     motionState.scale=snap.value;
     motionState.snapScale=snap.strength>.3?snap.target:null;
