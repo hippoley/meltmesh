@@ -161,3 +161,42 @@ input[type=range]::-moz-range-thumb{width:11px;height:17px;border:0;border-radiu
   .inspector{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:70vh;transform:translateY(calc(100% + 16px))}
   .inspector.open{transform:translateY(0)}
 }
+
+
+/* interaction feel */
+.motion-ui.dragging .next-frame{
+  border-color:rgba(238,207,252,1);
+  box-shadow:0 0 0 1px rgba(122,32,210,.18),0 0 30px rgba(122,32,210,.18);
+}
+.motion-ui.dragging .resize-handle,
+.motion-ui.dragging .rotate-handle{
+  opacity:.16;
+  pointer-events:none;
+}
+.motion-ui.dragging .motion-actions{
+  opacity:.46;
+}
+.motion-ui.settling .next-frame,
+.motion-ui.settling .ghost-frame,
+.motion-ui.settling .ribbon-handle{
+  transition:
+    left .16s cubic-bezier(.2,.9,.2,1),
+    top .16s cubic-bezier(.2,.9,.2,1),
+    width .16s cubic-bezier(.2,.9,.2,1),
+    height .16s cubic-bezier(.2,.9,.2,1),
+    transform .16s cubic-bezier(.2,.9,.2,1),
+    opacity .12s ease;
+}
+.next-frame{
+  will-change:left,top,width,height,transform;
+}
+.ribbon-handle,.ghost-frame{
+  will-change:left,top,width,height,transform,opacity;
+}
+@media (prefers-reduced-motion:reduce){
+  .motion-ui.settling .next-frame,
+  .motion-ui.settling .ghost-frame,
+  .motion-ui.settling .ribbon-handle{
+    transition:none;
+  }
+}
