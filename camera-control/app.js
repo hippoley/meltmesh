@@ -107,6 +107,15 @@ controls.target.set(0, 1.2, 0);
 controls.minDistance = 1.2;
 controls.maxDistance = 18;
 controls.maxPolarAngle = Math.PI * 0.49;
+let navigationMode = false;
+controls.enabled = false;
+function syncNavigationMode(){
+  controls.enabled = navigationMode && !playing;
+  if(ui.homeView){
+    ui.homeView.classList.toggle('active',navigationMode);
+    ui.homeView.textContent = navigationMode ? 'Done' : 'Navigate';
+  }
+}
 
 const topCtx = ui.top.getContext('2d');
 const sideCtx = ui.side.getContext('2d');
@@ -419,6 +428,7 @@ function stopPlayback(){
   playing=false;
   ui.play.textContent='▶ Play';
   const q=$('quickPlay'); if(q) q.textContent='▶ Preview shot';
+  syncNavigationMode();
 }
 function switchShot(index,snap=true){
   stopPlayback();
@@ -715,7 +725,21 @@ function endpointActive(){
 function motionActive(){
   return endpointActive() || Math.abs(motionState.bendX)>2 || Math.abs(motionState.bendY)>2;
 }
+function traceScreenAt(t){
+  const tr=motionState.trace;
+  if(!tr || tr.length<2)return null;
+  const t0=tr[0].time,t1=tr[tr.length-1].time,span=Math.max(1,t1-t0);
+  const target=t0+clamp(t,0,1)*span;
+  let i=1;
+  while(i<tr.length && tr[i].time<target)i++;
+  i=clamp(i,1,tr.length-1);
+  const a=tr[i-1],b=tr[i],d=Math.max(1,b.time-a.time);
+  const u=clamp((target-a.time)/d,0,1);
+  return {x:mix(a.x,b.x,u),y:mix(a.y,b.y,u)};
+}
 function curve2D(t){
+  const traced=traceScreenAt(t);
+  if(traced)return traced;
   const g=stageMetrics();
   const x0=g.baseX,y0=g.baseY;
   const x2=g.baseX+motionState.dx,y2=g.baseY+motionState.dy;
@@ -764,8 +788,10 @@ function updateMotionUI(){
     el.style.opacity=visible?'1':'0';
     el.style.pointerEvents='none';
   });
-  ui.motionApply.disabled=!visible;
-  ui.motionApply.style.opacity=visible?'1':'.45';
+  if(ui.motionApply){
+    ui.motionApply.disabled=!visible;
+    ui.motionApply.style.opacity=visible?'1':'.45';
+  }
   if(ui.motionApply){
     ui.motionApply.textContent=(shot()._chainMoves||0)>0?'Add next':'Apply';
   }
@@ -799,22 +825,8 @@ function inferGestureFromTrace(finalPass=false){
   }
   if(total<8)return;
 
-  // Geometry: fit one clean quadratic bow to the user's hand-drawn drag.
-  // This preserves expressive curvature while suppressing pointer jitter.
-  let mx=0,my=0,count=0;
-  for(let i=0;i<tr.length;i++){
-    const f=cum[i]/total;
-    if(f>=.38 && f<=.62){mx+=tr[i].x;my+=tr[i].y;count++}
-  }
-  if(!count){mx=(start.x+end.x)/2;my=(start.y+end.y)/2;count=1}
-  mx/=count;my/=count;
-  const controlX=2*mx-.5*(start.x+end.x);
-  const controlY=2*my-.5*(start.y+end.y);
-  const targetBendX=clamp(controlX-(start.x+end.x)/2,-g.w*.28,g.w*.28);
-  const targetBendY=clamp(controlY-(start.y+end.y)/2,-g.h*.28,g.h*.28);
-  const fit=finalPass?.62:.20;
-  motionState.bendX=mix(motionState.bendX,targetBendX,fit);
-  motionState.bendY=mix(motionState.bendY,targetBendY,fit);
+  // Geometry is no longer reduced to one quadratic bend.
+  // The complete stroke is preserved and sampled directly into 3D.
 
   // Rhythm: equal-time ghost frames land where the pointer actually was at
   // 25/50/75% of gesture time. Slow hand movement => close frames; fast => wide.
@@ -864,27 +876,31 @@ function drawFrameOverlay(){
 
   if(!endpointActive())return;
 
-  // Motion Ribbon: geometry = path hint.
-  const p0=curve2D(0),p1={
-    x:(p0.x+curve2D(1).x)/2+motionState.bendX,
-    y:(p0.y+curve2D(1).y)/2+motionState.bendY
-  },p2=curve2D(1);
+  // Motion Ribbon: the hand stroke itself is the path.
   if(motionState.trace.length>2){
     frameCtx.beginPath();
-    motionState.trace.forEach((p,i)=>{if(!i)frameCtx.moveTo(p.x,p.y);else frameCtx.lineTo(p.x,p.y)});
-    frameCtx.strokeStyle='rgba(255,224,139,.22)';
-    frameCtx.lineWidth=1;
+    for(let i=0;i<=36;i++){
+      const p=traceScreenAt(i/36);
+      if(!p)continue;
+      if(!i)frameCtx.moveTo(p.x,p.y);else frameCtx.lineTo(p.x,p.y);
+    }
+    frameCtx.strokeStyle='rgba(220,170,248,.78)';
+    frameCtx.lineWidth=2;
+    frameCtx.lineCap='round';
+    frameCtx.lineJoin='round';
+    frameCtx.stroke();
+  }else{
+    const p0=curve2D(0),p1={
+      x:(p0.x+curve2D(1).x)/2+motionState.bendX,
+      y:(p0.y+curve2D(1).y)/2+motionState.bendY
+    },p2=curve2D(1);
+    frameCtx.beginPath();
+    frameCtx.moveTo(p0.x,p0.y);
+    frameCtx.quadraticCurveTo(p1.x,p1.y,p2.x,p2.y);
+    frameCtx.strokeStyle='rgba(220,170,248,.65)';
+    frameCtx.lineWidth=1.5;
     frameCtx.stroke();
   }
-
-  frameCtx.beginPath();
-  frameCtx.moveTo(p0.x,p0.y);
-  frameCtx.quadraticCurveTo(p1.x,p1.y,p2.x,p2.y);
-  frameCtx.strokeStyle='rgba(220,170,248,.65)';
-  frameCtx.lineWidth=1.5;
-  frameCtx.setLineDash([5,5]);
-  frameCtx.stroke();
-  frameCtx.setLineDash([]);
 
   // Equal-time ticks make the captured rhythm legible.
   motionState.rhythm.forEach((t,i)=>{
@@ -901,50 +917,33 @@ function worldMotionPreview(s=shot()){
   let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
   if(right.lengthSq()<1e-6)right.set(1,0,0);else right.normalize();
   const up=new THREE.Vector3(0,1,0);
-
-  const lateral=(motionState.dx/g.w)*5.2;
-  const vertical=(-motionState.dy/g.h)*3.3;
   const push=(motionState.scale-1)*5.6;
-  const end=from.clone().addScaledVector(right,lateral).addScaledVector(forward,push).addScaledVector(up,vertical);
-  end.x=clamp(end.x,-5.2,5.2);end.y=clamp(end.y,.35,3.7);end.z=clamp(end.z,-5.2,7.8);
 
-  const delta=end.clone().sub(from);
-  const distance=Math.max(.08,delta.length());
-  const baseDir=delta.clone().normalize();
-
-  // Once a move has been committed, the next move inherits the outgoing
-  // heading of the existing path. The carry is deliberately weak: it makes
-  // chained moves flow, but a new drag still takes control immediately.
-  let incomingDir=baseDir.clone();
-  if(s.points.length>=2){
-    const prev=new THREE.Vector3(...s.points[s.points.length-2]);
-    const d=from.clone().sub(prev);
-    if(d.lengthSq()>.0001)incomingDir=d.normalize();
-  }
-  const startDir=incomingDir.clone().multiplyScalar(.62).add(baseDir.clone().multiplyScalar(.38));
-  if(startDir.lengthSq()<.0001)startDir.copy(baseDir);else startDir.normalize();
-
-  const bend=right.clone().multiplyScalar((motionState.bendX/g.w)*6.4)
-    .addScaledVector(up,(-motionState.bendY/g.h)*4.0);
-
-  const c1=from.clone()
-    .addScaledVector(startDir,distance*.34)
-    .addScaledVector(bend,.12);
-  const c2=end.clone()
-    .addScaledVector(baseDir,-distance*.30)
-    .addScaledVector(bend,.88);
+  const tr=motionState.trace;
+  const traceStart=tr?.length?tr[0]:{x:g.baseX,y:g.baseY,time:0};
 
   const at=t=>{
-    const u=1-t,u2=u*u,t2=t*t;
-    return from.clone().multiplyScalar(u2*u)
-      .add(c1.clone().multiplyScalar(3*u2*t))
-      .add(c2.clone().multiplyScalar(3*u*t2))
-      .add(end.clone().multiplyScalar(t2*t));
+    let screen=traceScreenAt(t);
+    if(!screen){
+      const p=curve2D(t);
+      screen={x:p.x,y:p.y};
+    }
+    const dx=screen.x-traceStart.x;
+    const dy=screen.y-traceStart.y;
+    const p=from.clone()
+      .addScaledVector(right,(dx/g.w)*5.2)
+      .addScaledVector(up,(-dy/g.h)*3.3)
+      .addScaledVector(forward,push*smoothstep01(t));
+    p.x=clamp(p.x,-5.2,5.2);
+    p.y=clamp(p.y,.35,3.7);
+    p.z=clamp(p.z,-5.2,7.8);
+    return p;
   };
-  const samples=[];
-  for(let i=0;i<=40;i++)samples.push(at(i/40));
 
-  return {from,end,c1,c2,at,samples};
+  const samples=[];
+  for(let i=0;i<=48;i++)samples.push(at(i/48));
+  const end=at(1);
+  return {from,end,at,samples};
 }
 function nearestCurveT(clientX,clientY){
   const r=ui.stage.getBoundingClientRect(),x=clientX-r.left,y=clientY-r.top;
@@ -960,7 +959,7 @@ function compileMotionGesture(){
     setStatus('DRAG NEXT FRAME');
     return;
   }
-  stopPlayback();controls.enabled=true;
+  stopPlayback();syncNavigationMode();
   const s=shot(),preview=worldMotionPreview(s);
   const beforePoints=s.points.length;
   const beforeSegments=s.segments.length;
@@ -976,8 +975,15 @@ function compileMotionGesture(){
   }
   let pathLength=0;
   for(let i=1;i<preview.samples.length;i++)pathLength+=preview.samples[i].distanceTo(preview.samples[i-1]);
-  const totalTime=clamp((pathLength/Math.max(.35,worldSpeed))*motionState.gestureTempo,.8,8);
-  const segmentTime=totalTime/4;
+  const traceElapsed=motionState.trace.length>1
+    ? Math.max(.25,(motionState.trace[motionState.trace.length-1].time-motionState.trace[0].time)/1000)
+    : 1;
+  const distanceTime=pathLength/Math.max(.35,worldSpeed);
+  const totalTime=clamp(distanceTime*.55 + traceElapsed*1.45, .65, 8);
+  const authoredTs=motionState.trace.length>3
+    ? [.16,.33,.50,.67,.84,1]
+    : [...motionState.rhythm,1];
+  const segmentTime=totalTime/authoredTs.length;
 
   // Ghost frames are equal-time samples. Their spatial spacing therefore *is*
   // the acceleration profile: close frames = slow, wide frames = fast.
@@ -987,7 +993,6 @@ function compileMotionGesture(){
     s.segments[s.segments.length-1].brakeOut=0;
   }
 
-  const authoredTs=[...motionState.rhythm,1];
   authoredTs.forEach((t,idx)=>{
     const p=preview.at(t);
     s.points.push([clamp(p.x,-5.2,5.2),clamp(p.y,.35,3.7),clamp(p.z,-5.2,7.8)]);
@@ -1146,12 +1151,11 @@ window.addEventListener('pointermove',e=>{
       const elasticX=rubberClamp(rawDx,-g.w*.36,g.w*.36,36);
       const elasticY=rubberClamp(rawDy,-g.h*.30,g.h*.30,32);
       const cx=g.baseX+elasticX,cy=g.baseY+elasticY;
-      const snapX=magnetic(cx,[g.w/3,g.w/2,g.w*2/3],20,.74);
-      const snapY=magnetic(cy,[g.h/3,g.h/2,g.h*2/3],18,.68);
-      motionState.dx=snapX.value-g.baseX;
-      motionState.dy=snapY.value-g.baseY;
-      motionState.snapX=snapX.strength>.28?snapX.target:null;
-      motionState.snapY=snapY.strength>.28?snapY.target:null;
+      motionState.dx=elasticX;
+      motionState.dy=elasticY;
+      const guidesX=[g.w/3,g.w/2,g.w*2/3],guidesY=[g.h/3,g.h/2,g.h*2/3];
+      motionState.snapX=guidesX.find(v=>Math.abs(cx-v)<7)??null;
+      motionState.snapY=guidesY.find(v=>Math.abs(cy-v)<7)??null;
 
       const now=sample.timeStamp||performance.now();
       const x=g.baseX+motionState.dx,y=g.baseY+motionState.dy,last=motionState.trace[motionState.trace.length-1];
@@ -1162,6 +1166,8 @@ window.addEventListener('pointermove',e=>{
       d.lastX=sample.clientX;d.lastY=sample.clientY;d.lastTime=now;
     }
     inferGestureFromTrace(false);
+    const preview=worldMotionPreview(shot());
+    applyCameraState({position:preview.end,target:targetFor(shot()).clone(),roll:THREE.MathUtils.degToRad(motionState.rot)});
   }else if(d.mode==='resize'){
     const r=ui.stage.getBoundingClientRect();
     const cx=r.left+d.centerX,cy=r.top+d.centerY;
@@ -1202,14 +1208,15 @@ function endMotionDrag(e){
 
   if(d.mode==='frame'){
     if(!d.activated){
-      // A click inside NEXT still behaves like clicking the 3D scene.
       selectTargetAt(d.startX,d.startY);
-    }else{
-      inferGestureFromTrace(true);
-      ui.motionUI?.classList.add('settling');
-      setTimeout(()=>ui.motionUI?.classList.remove('settling'),170);
-      setStatus('READY · APPLY');
+      motionDrag=null;
+      updateMotionUI();
+      return;
     }
+    inferGestureFromTrace(true);
+    motionDrag=null;
+    compileMotionGesture();
+    return;
   }else if(d.activated){
     ui.motionUI?.classList.add('settling');
     setTimeout(()=>ui.motionUI?.classList.remove('settling'),170);
@@ -1223,7 +1230,13 @@ window.addEventListener('pointercancel',endMotionDrag);
 
 ui.timeline.addEventListener('input',e=>{stopPlayback();controls.enabled=true;playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
 
-ui.homeView.addEventListener('click',()=>{stopPlayback();controls.enabled=true;camera.position.set(0,2.8,9.2);controls.target.set(0,1.1,-.2);controls.update();setStatus('FREE VIEW')});
+ui.homeView.addEventListener('click',()=>{
+  stopPlayback();
+  navigationMode=!navigationMode;
+  if(navigationMode)resetMotionGesture();
+  syncNavigationMode();
+  setStatus(navigationMode?'NAVIGATE · DRAG SCENE':'AUTHOR · DRAW MOTION');
+});
 
 function resizeRenderer(){
   const r=ui.stage.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);
@@ -1390,13 +1403,10 @@ function selectTargetAt(clientX,clientY){
   }
   return false;
 }
-renderer.domElement.addEventListener('pointerdown',e=>{pointerDown={x:e.clientX,y:e.clientY}});
-renderer.domElement.addEventListener('pointerup',e=>{
-  if(!pointerDown)return;
-  if(Math.hypot(e.clientX-pointerDown.x,e.clientY-pointerDown.y)>5){pointerDown=null;return}
-  pointerDown=null;
-  selectTargetAt(e.clientX,e.clientY);
-});
+renderer.domElement.addEventListener('pointerdown',e=>{
+  if(navigationMode || playing || e.button!==0)return;
+  beginMotionDrag('frame',e);
+},{capture:true});
 
 ui.importGlb.addEventListener('click',()=>ui.importGlbInput.click());
 ui.importGlbInput.addEventListener('change',async e=>{
@@ -1464,6 +1474,9 @@ setTargetMarker();
 refreshUI();
 resizeRenderer();
 applyCameraState(cameraStateAt(shot(),0));
+navigationMode=false;
+syncNavigationMode();
 resetMotionGesture();
+setStatus('DRAG ANYWHERE');
 ui.loading.classList.add('hidden');
 requestAnimationFrame(animate);
