@@ -273,3 +273,25 @@ input[type=range]::-moz-range-thumb{width:11px;height:17px;border:0;border-radiu
 .motion-ui.dragging .ribbon-handle{
   opacity:.55 !important;
 }
+
+
+/* continuous steering: path authoring is no longer bounded by the composition frame */
+.stage:not(.navigate) .next-frame,
+.stage:not(.navigate) .ghost-frame,
+.stage:not(.navigate) .ribbon-handle{
+  opacity:0 !important;
+  pointer-events:none !important;
+}
+.stage:not(.navigate) #scene{
+  cursor:crosshair;
+}
+.stage.piloting #scene{
+  cursor:none;
+}
+.stage.piloting{
+  box-shadow:inset 0 0 0 1px rgba(220,170,248,.18);
+}
+.stage.piloting .statusbar span{
+  background:rgba(52,24,67,.72);
+  border-color:rgba(220,170,248,.16);
+}
