@@ -36,37 +36,39 @@ body{display:flex;justify-content:center}
 .next-frame{
   position:absolute;left:50%;top:47%;width:36%;height:40%;
   transform:translate(-50%,-50%);
-  border:1.8px solid rgba(220,170,248,.98);
-  box-shadow:0 0 0 1px rgba(122,32,210,.12),0 0 20px rgba(122,32,210,.10);
-  pointer-events:auto;cursor:move;touch-action:none;transform-origin:center center
+  border:2px solid rgba(220,170,248,.98);
+  box-shadow:0 0 0 1px rgba(122,32,210,.12),0 0 24px rgba(122,32,210,.12);
+  pointer-events:auto;cursor:grab;touch-action:none;transform-origin:center center
 }
+.next-frame:active{cursor:grabbing}
 .next-frame>span{
   position:absolute;left:7px;top:6px;color:#efdffa;background:rgba(93,35,124,.56);
   border:1px solid rgba(235,206,249,.2);border-radius:5px;padding:3px 5px;
   font:700 8px ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none
 }
 .resize-handle{
-  position:absolute;right:-8px;bottom:-8px;width:16px;height:16px;border-radius:50%;
-  background:#fff;border:3px solid var(--accent);cursor:nwse-resize;pointer-events:auto
+  position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:50%;
+  background:#fff;border:3px solid var(--accent);cursor:nwse-resize;pointer-events:auto;opacity:.72
 }
+.next-frame:hover .resize-handle{opacity:1}
 .rotate-handle{
-  position:absolute;left:50%;top:-24px;transform:translateX(-50%);
-  width:13px;height:13px;border-radius:50%;background:#fff;border:3px solid var(--accent2);
-  cursor:grab;pointer-events:auto
+  position:absolute;left:50%;top:-22px;transform:translateX(-50%);
+  width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid var(--accent2);
+  cursor:grab;pointer-events:auto;opacity:.45
 }
+.next-frame:hover .rotate-handle{opacity:1}
 .rotate-handle::after{content:"";position:absolute;left:50%;top:10px;width:1px;height:12px;background:rgba(220,170,248,.7)}
 .ribbon-handle{
-  position:absolute;width:18px;height:18px;border-radius:50%;border:0;background:#fff;
-  box-shadow:0 0 0 4px rgba(122,32,210,.25),0 3px 12px rgba(0,0,0,.22);
-  transform:translate(-50%,-50%);pointer-events:auto;cursor:grab;touch-action:none
+  position:absolute;width:14px;height:14px;border-radius:50%;border:0;background:#fff;
+  box-shadow:0 0 0 3px rgba(122,32,210,.20),0 2px 8px rgba(0,0,0,.18);
+  transform:translate(-50%,-50%);pointer-events:none;touch-action:none
 }
 .ribbon-handle::after{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--accent)}
 .ghost-frame{
-  position:absolute;border:1px solid rgba(195,128,230,.6);
-  pointer-events:auto;cursor:ew-resize;touch-action:none;transform-origin:center center;
-  background:rgba(122,32,210,.015)
+  position:absolute;border:1px solid rgba(195,128,230,.56);
+  pointer-events:none;touch-action:none;transform-origin:center center;
+  background:rgba(122,32,210,.012)
 }
-.ghost-frame:hover{border-color:rgba(238,207,252,.95);box-shadow:0 0 0 1px rgba(238,207,252,.12)}
 .motion-actions{
   position:absolute;left:50%;bottom:12px;transform:translateX(-50%);
   display:flex;gap:6px;pointer-events:auto
