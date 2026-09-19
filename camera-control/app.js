@@ -1245,6 +1245,18 @@ function endPilotGesture(e){
   const startClientX=(ui.stage.getBoundingClientRect().left+pilotState.anchorX);
   const startClientY=(ui.stage.getBoundingClientRect().top+pilotState.anchorY);
 
+  if(wasMoved){
+    const elapsed=performance.now()-pilotState.startMs;
+    const last=pilotState.samples[pilotState.samples.length-1];
+    if(!last || last.position.distanceTo(camera.position)>.015){
+      pilotState.samples.push({
+        position:camera.position.clone(),
+        time:elapsed,
+        screen:{x:pilotState.x,y:pilotState.y}
+      });
+    }
+  }
+
   try{pilotState.captureEl?.releasePointerCapture?.(pilotState.pointerId)}catch{}
   pilotState.active=false;
   ui.stage?.classList.remove('piloting');
