@@ -315,11 +315,64 @@ let drag = null;
 let pointerDown = null;
 
 function shot(){ return shots[currentShotIndex]; }
-function targetFor(s=shot()){
-  const def=targetDefs[s.targetId] || targetDefs.room;
+function rawTargetPosition(id,s=shot()){
+  const def=targetDefs[id] || targetDefs.room;
   const out=def.position.clone();
   if(Array.isArray(s.lookOffset)) out.add(new THREE.Vector3(...s.lookOffset));
   return out;
+}
+function focusKeysFor(s=shot()){
+  if(!Array.isArray(s.focusKeys))s.focusKeys=[];
+  s.focusKeys.sort((a,b)=>a.time-b.time);
+  return s.focusKeys;
+}
+function targetFor(s=shot(),time=playhead){
+  let currentId=s.targetId || 'room';
+  let current=rawTargetPosition(currentId,s);
+  const keys=focusKeysFor(s);
+  for(const key of keys){
+    const keyTime=clamp(+key.time||0,0,shotDuration(s));
+    const blend=clamp(+key.blend||.85,.35,1.6);
+    const start=Math.max(0,keyTime-blend);
+    const next=rawTargetPosition(key.targetId,s);
+    if(time<start)return current;
+    if(time<keyTime){
+      const u=smootherstep01((time-start)/Math.max(.001,keyTime-start));
+      return current.clone().lerp(next,u);
+    }
+    currentId=key.targetId;
+    current=next;
+  }
+  return current;
+}
+function subjectIdAtTime(s=shot(),time=playhead){
+  let id=s.targetId || 'room';
+  for(const key of focusKeysFor(s)){
+    if(time>=clamp(+key.time||0,0,shotDuration(s))-.001)id=key.targetId;
+    else break;
+  }
+  return id;
+}
+function setSubjectAtTime(s,id,time=playhead){
+  const total=shotDuration(s);
+  if(total<.2 || time<=.08){
+    s.targetId=id;
+    s.focusKeys=[];
+    return {mode:'base',time:0};
+  }
+
+  const t=clamp(time,.08,total);
+  const keys=focusKeysFor(s);
+  const near=keys.findIndex(k=>Math.abs(k.time-t)<.18);
+  const key={
+    time:t,
+    targetId:id,
+    blend:clamp(total*.08,.55,1.15)
+  };
+  if(near>=0)keys[near]=key;
+  else keys.push(key);
+  keys.sort((a,b)=>a.time-b.time);
+  return {mode:'key',time:t,blend:key.blend};
 }
 function relabelPoints(s=shot()){
   s.pointLabels = s.points.map((_,i)=>String.fromCharCode(65+i));
@@ -508,12 +561,12 @@ function cameraStateAt(s,time){
     const profile=silkyMotionFor(s);
     const p=profile.curve.getPointAt(u);
     const segment=Math.min(s.segments.length-1,Math.floor(u*Math.max(1,s.segments.length)));
-    return {position:p,target:targetFor(s).clone(),roll:s.roll||0,segment,u};
+    return {position:p,target:targetFor(s,time).clone(),roll:s.roll||0,segment,u};
   }
   const hit=segmentAtTime(s,clamp(time,0,total));
   const u=smoothSegmentWarp(s,hit.i,hit.local);
   const p=posOnSegment(s,hit.i,u);
-  return {position:new THREE.Vector3(...p), target:targetFor(s).clone(), roll:s.roll||0, segment:hit.i, u};
+  return {position:new THREE.Vector3(...p), target:targetFor(s,time).clone(), roll:s.roll||0, segment:hit.i, u};
 }
 function samplePath(s=shot(),count=180){
   const total=shotDuration(s),arr=[];
@@ -530,7 +583,7 @@ function applyCameraState(state){
 
 function setTargetMarker(){
   Object.values(targetDefs).forEach(x=>{if(x.marker)x.marker.visible=false});
-  const def=targetDefs[shot().targetId];
+  const def=targetDefs[subjectIdAtTime(shot(),playhead)];
   if(def?.marker) def.marker.visible=true;
 }
 function setStatus(text){ ui.status.textContent=text; }
@@ -561,7 +614,8 @@ function renderShots(){
   shots.forEach((s,i)=>{
     const o=document.createElement('option');
     o.value=String(i);
-    o.textContent=s.name+' · '+(targetDefs[s.targetId]?.label||'Target')+' · '+shotDuration(s).toFixed(1)+'s';
+    const focusCount=Array.isArray(s.focusKeys)?s.focusKeys.length:0;
+    o.textContent=s.name+' · '+(targetDefs[s.targetId]?.label||'Target')+(focusCount?' + '+focusCount+' focus':'')+' · '+shotDuration(s).toFixed(1)+'s';
     o.selected=i===currentShotIndex;
     ui.shots.appendChild(o);
   });
@@ -580,13 +634,14 @@ function renderTargets(){
     const def=targetDefs[ui.targets.value];
     if(!def)return;
     shot().targetId=def.id;
+    shot().focusKeys=[];
     setTargetMarker();
     refreshUI();
     applyCameraState(cameraStateAt(shot(),playhead));
-    setStatus('TARGET · '+def.label.toUpperCase());
+    setStatus('FOCUS RESET · '+def.label.toUpperCase());
   };
   const def=targetDefs[shot().targetId];
-  ui.targetMeta.textContent='Click an object in 3D to refocus · ['+def.position.toArray().map(v=>v.toFixed(2)).join(', ')+']';
+  ui.targetMeta.textContent='Click an object at the current playhead to transfer subject · ['+def.position.toArray().map(v=>v.toFixed(2)).join(', ')+']';
 }
 function renderPoints(){
   ui.points.innerHTML='';
@@ -922,6 +977,7 @@ const pilotState={
 function quickValue(el){return +(el?.value||0)}
 function mix(a,b,t){return a+(b-a)*t}
 function smoothstep01(t){t=clamp(t,0,1);return t*t*(3-2*t)}
+function smootherstep01(t){t=clamp(t,0,1);return t*t*t*(t*(t*6-15)+10)}
 function magnetic(value,targets,radius,strength=.72){
   let best=null,bestD=Infinity;
   for(const target of targets){
@@ -1678,7 +1734,7 @@ function endMotionDrag(e){
 window.addEventListener('pointerup',endMotionDrag);
 window.addEventListener('pointercancel',endMotionDrag);
 
-ui.timeline.addEventListener('input',e=>{stopPlayback();syncNavigationMode();playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
+ui.timeline.addEventListener('input',e=>{stopPlayback();syncNavigationMode();playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));setTargetMarker();refreshTimeline();setStatus('SCRUB · CLICK SUBJECT TO TRANSFER')});
 
 ui.homeView.addEventListener('click',()=>{
   stopPlayback();
@@ -1849,12 +1905,17 @@ function selectTargetAt(clientX,clientY){
   let obj=hits[0].object,id=obj.userData.targetId;
   while(!id&&obj.parent){obj=obj.parent;id=obj.userData.targetId}
   if(id&&targetDefs[id]){
-    shot().targetId=id;
+    const s=shot();
+    const result=setSubjectAtTime(s,id,playhead);
     setTargetMarker();
     refreshUI();
-    controls.target.copy(targetDefs[id].position);
-    controls.update();
-    setStatus('TARGET · '+targetDefs[id].label.toUpperCase());
+    const state=cameraStateAt(s,playhead);
+    applyCameraState(state);
+    if(result.mode==='base'){
+      setStatus('SUBJECT · '+targetDefs[id].label.toUpperCase());
+    }else{
+      setStatus('SUBJECT → '+targetDefs[id].label.toUpperCase()+' · '+result.time.toFixed(1)+'s');
+    }
     return true;
   }
   return false;
@@ -1912,6 +1973,7 @@ function animate(ts){
       }
     }
     if(playing || playhead<=shotDuration()) applyCameraState(cameraStateAt(shot(),playhead));
+    setTargetMarker();
     refreshTimeline();
   } else if(pilotState.active) {
     updatePilot(dt,ts);
