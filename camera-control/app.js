@@ -666,11 +666,32 @@ const motionState={
   bendY:0,
   rhythm:[.17,.50,.83],
   trace:[],
-  gestureTempo:1
+  gestureTempo:1,
+  snapX:null,
+  snapY:null,
+  snapScale:null,
+  snapRot:null
 };
 let motionDrag=null;
 
 function quickValue(el){return +(el?.value||0)}
+function mix(a,b,t){return a+(b-a)*t}
+function smoothstep01(t){t=clamp(t,0,1);return t*t*(3-2*t)}
+function magnetic(value,targets,radius,strength=.72){
+  let best=null,bestD=Infinity;
+  for(const target of targets){
+    const d=Math.abs(value-target);
+    if(d<bestD){bestD=d;best=target}
+  }
+  if(best===null || bestD>=radius)return {value,target:null,strength:0};
+  const pull=smoothstep01(1-bestD/radius)*strength;
+  return {value:mix(value,best,pull),target:best,strength:pull};
+}
+function rubberClamp(value,min,max,soft=32){
+  if(value<min)return min-(min-value)/(1+(min-value)/soft);
+  if(value>max)return max+(value-max)/(1+(value-max)/soft);
+  return value;
+}
 function stageMetrics(){
   const r=ui.stage.getBoundingClientRect();
   return {w:r.width,h:r.height,baseX:r.width*.5,baseY:r.height*.47,baseW:r.width*.36,baseH:r.height*.40};
@@ -739,13 +760,14 @@ function resetMotionGesture(){
   motionState.dx=0;motionState.dy=0;motionState.scale=1;motionState.rot=0;
   motionState.bendX=0;motionState.bendY=0;motionState.rhythm=[.17,.50,.83];
   motionState.trace=[];motionState.gestureTempo=1;
+  motionState.snapX=null;motionState.snapY=null;motionState.snapScale=null;motionState.snapRot=null;
   quickAxes.forEach(([,el,out])=>{
     if(el)el.value='0';
     if(out)out.textContent='0.0';
   });
   updateMotionUI();
 }
-function inferGestureFromTrace(){
+function inferGestureFromTrace(finalPass=false){
   const tr=motionState.trace;
   if(!tr || tr.length<3)return;
   const g=stageMetrics();
@@ -769,8 +791,11 @@ function inferGestureFromTrace(){
   mx/=count;my/=count;
   const controlX=2*mx-.5*(start.x+end.x);
   const controlY=2*my-.5*(start.y+end.y);
-  motionState.bendX=clamp(controlX-(start.x+end.x)/2,-g.w*.28,g.w*.28);
-  motionState.bendY=clamp(controlY-(start.y+end.y)/2,-g.h*.28,g.h*.28);
+  const targetBendX=clamp(controlX-(start.x+end.x)/2,-g.w*.28,g.w*.28);
+  const targetBendY=clamp(controlY-(start.y+end.y)/2,-g.h*.28,g.h*.28);
+  const fit=finalPass?.62:.20;
+  motionState.bendX=mix(motionState.bendX,targetBendX,fit);
+  motionState.bendY=mix(motionState.bendY,targetBendY,fit);
 
   // Rhythm: equal-time ghost frames land where the pointer actually was at
   // 25/50/75% of gesture time. Slow hand movement => close frames; fast => wide.
@@ -789,11 +814,13 @@ function inferGestureFromTrace(){
   inferred[0]=clamp(inferred[0],.05,.78);
   inferred[1]=clamp(inferred[1],inferred[0]+.06,.89);
   inferred[2]=clamp(inferred[2],inferred[1]+.06,.95);
-  motionState.rhythm=inferred;
+  const rhythmFit=finalPass?.68:.22;
+  motionState.rhythm=motionState.rhythm.map((v,i)=>mix(v,inferred[i],rhythmFit));
 
   // The speed of the same drag also supplies a global tempo hint.
   // A slow deliberate drag yields a slower cinematic move; a flick stays brisk.
-  motionState.gestureTempo=clamp(elapsed/850,.62,1.65);
+  const tempoTarget=clamp(elapsed/850,.62,1.65);
+  motionState.gestureTempo=mix(motionState.gestureTempo,tempoTarget,finalPass?.72:.24);
 }
 
 function drawFrameOverlay(){
@@ -806,6 +833,15 @@ function drawFrameOverlay(){
   frameCtx.strokeStyle='rgba(255,255,255,.44)';
   frameCtx.lineWidth=1;
   frameCtx.strokeRect(g.baseX-g.baseW/2,g.baseY-g.baseH/2,g.baseW,g.baseH);
+
+  if(motionState.snapX!==null){
+    frameCtx.beginPath();frameCtx.moveTo(motionState.snapX,0);frameCtx.lineTo(motionState.snapX,g.h);
+    frameCtx.strokeStyle='rgba(255,228,148,.34)';frameCtx.lineWidth=1;frameCtx.stroke();
+  }
+  if(motionState.snapY!==null){
+    frameCtx.beginPath();frameCtx.moveTo(0,motionState.snapY);frameCtx.lineTo(g.w,motionState.snapY);
+    frameCtx.strokeStyle='rgba(255,228,148,.34)';frameCtx.lineWidth=1;frameCtx.stroke();
+  }
 
   if(!endpointActive())return;
 
@@ -959,14 +995,18 @@ ui.motionReset?.addEventListener('click',()=>{resetMotionGesture();setStatus('GE
 
 function beginMotionDrag(mode,e,index=-1){
   e.preventDefault();e.stopPropagation();
-  const g=stageMetrics(),r=ui.stage.getBoundingClientRect();
+  const g=stageMetrics();
   motionDrag={
-    mode,index,startX:e.clientX,startY:e.clientY,
+    mode,index,pointerId:e.pointerId,captureEl:e.currentTarget,
+    startX:e.clientX,startY:e.clientY,lastX:e.clientX,lastY:e.clientY,lastTime:performance.now(),
+    activated:false,
     dx:motionState.dx,dy:motionState.dy,scale:motionState.scale,rot:motionState.rot,
     bendX:motionState.bendX,bendY:motionState.bendY,
     rhythm:[...motionState.rhythm],
     centerX:g.baseX+motionState.dx,centerY:g.baseY+motionState.dy
   };
+  try{e.currentTarget?.setPointerCapture?.(e.pointerId)}catch{}
+  ui.motionUI?.classList.add('dragging');
   if(mode==='frame'){
     motionState.trace=[{
       x:g.baseX+motionState.dx,
@@ -976,6 +1016,7 @@ function beginMotionDrag(mode,e,index=-1){
     motionState.bendX=0;motionState.bendY=0;
     motionState.rhythm=[.17,.50,.83];
     motionState.gestureTempo=1;
+    motionState.snapX=null;motionState.snapY=null;
   }
 }
 ui.nextFrame?.addEventListener('pointerdown',e=>{
@@ -988,29 +1029,52 @@ ui.ribbonHandle?.addEventListener('pointerdown',e=>beginMotionDrag('bend',e));
 ui.ghostFrames.forEach((el,i)=>el?.addEventListener('pointerdown',e=>beginMotionDrag('rhythm',e,i)));
 
 window.addEventListener('pointermove',e=>{
-  if(!motionDrag)return;
+  if(!motionDrag || (motionDrag.pointerId!==undefined && e.pointerId!==motionDrag.pointerId))return;
   const d=motionDrag,dx=e.clientX-d.startX,dy=e.clientY-d.startY;
+  const travel=Math.hypot(dx,dy);
+  if(!d.activated && travel<5)return;
+  d.activated=true;
+
   if(d.mode==='frame'){
-    const g=stageMetrics(),r=ui.stage.getBoundingClientRect();
-    motionState.dx=clamp(d.dx+dx,-g.w*.36,g.w*.36);
-    motionState.dy=clamp(d.dy+dy,-g.h*.30,g.h*.30);
-    const now=performance.now();
-    const x=g.baseX+motionState.dx,y=g.baseY+motionState.dy,last=motionState.trace[motionState.trace.length-1];
-    if(!last || now-last.time>12 || Math.hypot(x-last.x,y-last.y)>3){
-      motionState.trace.push({x,y,time:now});
-      if(motionState.trace.length>96)motionState.trace.shift();
-      inferGestureFromTrace();
+    const g=stageMetrics();
+    const samples=e.getCoalescedEvents?.()||[e];
+    for(const sample of samples){
+      const rawDx=d.dx+(sample.clientX-d.startX);
+      const rawDy=d.dy+(sample.clientY-d.startY);
+      const elasticX=rubberClamp(rawDx,-g.w*.36,g.w*.36,36);
+      const elasticY=rubberClamp(rawDy,-g.h*.30,g.h*.30,32);
+      const cx=g.baseX+elasticX,cy=g.baseY+elasticY;
+      const snapX=magnetic(cx,[g.w/3,g.w/2,g.w*2/3],20,.74);
+      const snapY=magnetic(cy,[g.h/3,g.h/2,g.h*2/3],18,.68);
+      motionState.dx=snapX.value-g.baseX;
+      motionState.dy=snapY.value-g.baseY;
+      motionState.snapX=snapX.strength>.28?snapX.target:null;
+      motionState.snapY=snapY.strength>.28?snapY.target:null;
+
+      const now=sample.timeStamp||performance.now();
+      const x=g.baseX+motionState.dx,y=g.baseY+motionState.dy,last=motionState.trace[motionState.trace.length-1];
+      if(!last || now-last.time>10 || Math.hypot(x-last.x,y-last.y)>2.5){
+        motionState.trace.push({x,y,time:now});
+        if(motionState.trace.length>120)motionState.trace.shift();
+      }
+      d.lastX=sample.clientX;d.lastY=sample.clientY;d.lastTime=now;
     }
+    inferGestureFromTrace(false);
   }else if(d.mode==='resize'){
-    motionState.scale=clamp(d.scale+(dx-dy)*.0035,.58,1.7);
+    const raw=clamp(d.scale+(dx-dy)*.0035,.58,1.7);
+    const snap=magnetic(raw,[.75,1,1.25,1.5],.065,.82);
+    motionState.scale=snap.value;
+    motionState.snapScale=snap.strength>.3?snap.target:null;
   }else if(d.mode==='bend'){
     motionState.bendX=d.bendX+dx;
     motionState.bendY=d.bendY+dy;
   }else if(d.mode==='rotate'){
     const r=ui.stage.getBoundingClientRect();
     const cx=r.left+d.centerX,cy=r.top+d.centerY;
-    const angle=Math.atan2(e.clientY-cy,e.clientX-cx)*180/Math.PI+90;
-    motionState.rot=clamp(angle,-35,35);
+    const raw=clamp(Math.atan2(e.clientY-cy,e.clientX-cx)*180/Math.PI+90,-35,35);
+    const snap=magnetic(raw,[-30,-15,0,15,30],4.5,.86);
+    motionState.rot=snap.value;
+    motionState.snapRot=snap.strength>.3?snap.target:null;
   }else if(d.mode==='rhythm'){
     let t=nearestCurveT(e.clientX,e.clientY);
     const lo=d.index===0?.05:motionState.rhythm[d.index-1]+.06;
@@ -1018,13 +1082,34 @@ window.addEventListener('pointermove',e=>{
     motionState.rhythm[d.index]=clamp(t,lo,hi);
   }
   updateMotionUI();
-  setStatus(d.mode==='frame'?'PATH + RHYTHM':(d.mode==='rhythm'?'RHYTHM':'MOTION PREVIEW'));
+  setStatus(d.mode==='frame'?'FLOW':(d.mode==='rhythm'?'RHYTHM':'MOTION PREVIEW'));
 });
-window.addEventListener('pointerup',()=>{
-    if(motionDrag?.mode==='frame')inferGestureFromTrace();
-    motionDrag=null;
-    updateMotionUI();
-  });
+function endMotionDrag(e){
+  if(!motionDrag || (e?.pointerId!==undefined && motionDrag.pointerId!==undefined && e.pointerId!==motionDrag.pointerId))return;
+  const d=motionDrag;
+  try{d.captureEl?.releasePointerCapture?.(d.pointerId)}catch{}
+  ui.motionUI?.classList.remove('dragging');
+
+  if(d.mode==='frame'){
+    if(!d.activated){
+      // A click inside NEXT still behaves like clicking the 3D scene.
+      selectTargetAt(d.startX,d.startY);
+    }else{
+      inferGestureFromTrace(true);
+      ui.motionUI?.classList.add('settling');
+      setTimeout(()=>ui.motionUI?.classList.remove('settling'),170);
+      setStatus('READY · APPLY');
+    }
+  }else if(d.activated){
+    ui.motionUI?.classList.add('settling');
+    setTimeout(()=>ui.motionUI?.classList.remove('settling'),170);
+  }
+
+  motionDrag=null;
+  updateMotionUI();
+}
+window.addEventListener('pointerup',endMotionDrag);
+window.addEventListener('pointercancel',endMotionDrag);
 
 ui.timeline.addEventListener('input',e=>{stopPlayback();controls.enabled=true;playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
 
@@ -1175,19 +1260,32 @@ function bindMini(canvas,mode){
 bindMini(ui.top,'top');bindMini(ui.side,'side');
 
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
+function selectTargetAt(clientX,clientY){
+  const r=renderer.domElement.getBoundingClientRect();
+  pointer.x=((clientX-r.left)/r.width)*2-1;
+  pointer.y=-((clientY-r.top)/r.height)*2+1;
+  raycaster.setFromCamera(pointer,camera);
+  const hits=raycaster.intersectObjects(targetPickMeshes,true);
+  if(!hits.length)return false;
+  let obj=hits[0].object,id=obj.userData.targetId;
+  while(!id&&obj.parent){obj=obj.parent;id=obj.userData.targetId}
+  if(id&&targetDefs[id]){
+    shot().targetId=id;
+    setTargetMarker();
+    refreshUI();
+    controls.target.copy(targetDefs[id].position);
+    controls.update();
+    setStatus('TARGET · '+targetDefs[id].label.toUpperCase());
+    return true;
+  }
+  return false;
+}
 renderer.domElement.addEventListener('pointerdown',e=>{pointerDown={x:e.clientX,y:e.clientY}});
 renderer.domElement.addEventListener('pointerup',e=>{
   if(!pointerDown)return;
   if(Math.hypot(e.clientX-pointerDown.x,e.clientY-pointerDown.y)>5){pointerDown=null;return}
   pointerDown=null;
-  const r=renderer.domElement.getBoundingClientRect();pointer.x=((e.clientX-r.left)/r.width)*2-1;pointer.y=-((e.clientY-r.top)/r.height)*2+1;raycaster.setFromCamera(pointer,camera);
-  const hits=raycaster.intersectObjects(targetPickMeshes,true);
-  if(!hits.length)return;
-  let obj=hits[0].object,id=obj.userData.targetId;
-  while(!id&&obj.parent){obj=obj.parent;id=obj.userData.targetId}
-  if(id&&targetDefs[id]){
-    shot().targetId=id;setTargetMarker();refreshUI();controls.target.copy(targetDefs[id].position);controls.update();setStatus('TARGET · '+targetDefs[id].label.toUpperCase());
-  }
+  selectTargetAt(e.clientX,e.clientY);
 });
 
 ui.importGlb.addEventListener('click',()=>ui.importGlbInput.click());
