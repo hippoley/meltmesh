@@ -329,6 +329,8 @@ let playbackMode = 'shot';
 let looping = false;
 let sequenceIndex = 0;
 let lastTs = performance.now();
+let frameDt = 1/60;
+let cinematicOrientationPrimed = false;
 let drag = null;
 let pointerDown = null;
 
@@ -383,26 +385,26 @@ function subjectTransferActivity(s=shot(),time=playhead){
   }
   return activity;
 }
-function setSubjectAtTime(s,id,time=playhead){
+function setSubjectAtTime(s,id,time=playhead,live=false){
   const total=shotDuration(s);
-  if(total<.2 || time<=.08){
+  const blend=clamp(total*.08,.55,1.15);
+  if(total<.2 || (!live && time<=.08)){
     s.targetId=id;
     s.focusKeys=[];
-    return {mode:'base',time:0};
+    return {mode:'base',time:0,blend};
   }
 
-  const t=clamp(time,.08,total);
+  // Timeline authoring means "arrive on this subject here".
+  // Live clicking means "start turning now and arrive naturally a moment later".
+  const requested=live?time+blend:time;
+  const t=clamp(requested,.08,total);
   const keys=focusKeysFor(s);
   const near=keys.findIndex(k=>Math.abs(k.time-t)<.18);
-  const key={
-    time:t,
-    targetId:id,
-    blend:clamp(total*.08,.55,1.15)
-  };
+  const key={time:t,targetId:id,blend};
   if(near>=0)keys[near]=key;
   else keys.push(key);
   keys.sort((a,b)=>a.time-b.time);
-  return {mode:'key',time:t,blend:key.blend};
+  return {mode:'key',time:t,blend,live};
 }
 function relabelPoints(s=shot()){
   s.pointLabels = s.points.map((_,i)=>String.fromCharCode(65+i));
@@ -572,6 +574,15 @@ function silkyDistanceAtTime(s,t){
   const f=t1>t0?clamp((eased-t0)/(t1-t0),0,1):0;
   return ((i-1)+f)/profile.count;
 }
+function silkyBankAt(s,u){
+  if(!s.stabilized)return 0;
+  const curve=silkyMotionFor(s).curve;
+  const a=curve.getTangentAt(clamp(u-.018,0,1)).normalize();
+  const b=curve.getTangentAt(clamp(u+.018,0,1)).normalize();
+  const turn=new THREE.Vector3().crossVectors(a,b).y;
+  // Under one degree: felt as inertia, not seen as a gimmick.
+  return clamp(-turn*.055,-.013,.013);
+}
 function segmentAtTime(s,time){
   let cursor=0;
   for(let i=0;i<s.segments.length;i++){
@@ -591,7 +602,7 @@ function cameraStateAt(s,time){
     const profile=silkyMotionFor(s);
     const p=profile.curve.getPointAt(u);
     const segment=Math.min(s.segments.length-1,Math.floor(u*Math.max(1,s.segments.length)));
-    return {position:p,target:targetFor(s,time).clone(),roll:s.roll||0,segment,u};
+    return {position:p,target:targetFor(s,time).clone(),roll:(s.roll||0)+silkyBankAt(s,u),segment,u};
   }
   const hit=segmentAtTime(s,clamp(time,0,total));
   const u=smoothSegmentWarp(s,hit.i,hit.local);
@@ -605,10 +616,23 @@ function samplePath(s=shot(),count=180){
 }
 function applyCameraState(state){
   camera.position.copy(state.position);
-  camera.lookAt(state.target);
   controls.target.copy(state.target);
-  controls.update();
-  if(state.roll) camera.rotateZ(state.roll);
+
+  if(playing && !navigationMode){
+    const lookMatrix=new THREE.Matrix4().lookAt(camera.position,state.target,camera.up);
+    const desired=new THREE.Quaternion().setFromRotationMatrix(lookMatrix);
+    const alpha=cinematicOrientationPrimed
+      ? 1-Math.exp(-Math.max(1/240,frameDt)*18)
+      : 1;
+    camera.quaternion.slerp(desired,alpha);
+    cinematicOrientationPrimed=true;
+  }else{
+    camera.lookAt(state.target);
+    controls.update();
+    cinematicOrientationPrimed=false;
+  }
+
+  if(state.roll)camera.rotateZ(state.roll);
 }
 function updateCinematicOptics(s=shot(),time=playhead){
   const hasTransfers=Array.isArray(s.focusKeys)&&s.focusKeys.length>0;
@@ -926,6 +950,7 @@ ui.play.addEventListener('click',()=>{
   playbackMode='shot';
   if(playhead>=shotDuration())playhead=0;
   playing=!playing;
+  cinematicOrientationPrimed=false;
   syncNavigationMode();
   ui.play.textContent=playing?'⏸ Pause':'▶ Play';
   syncPlayLabels();
@@ -1951,7 +1976,7 @@ function bindMini(canvas,mode){
 bindMini(ui.top,'top');bindMini(ui.side,'side');
 
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
-function selectTargetAt(clientX,clientY){
+function selectTargetAt(clientX,clientY,live=false){
   const r=renderer.domElement.getBoundingClientRect();
   pointer.x=((clientX-r.left)/r.width)*2-1;
   pointer.y=-((clientY-r.top)/r.height)*2+1;
@@ -1962,13 +1987,15 @@ function selectTargetAt(clientX,clientY){
   while(!id&&obj.parent){obj=obj.parent;id=obj.userData.targetId}
   if(id&&targetDefs[id]){
     const s=shot();
-    const result=setSubjectAtTime(s,id,playhead);
+    const result=setSubjectAtTime(s,id,playhead,live);
     setTargetMarker();
     refreshUI();
     const state=cameraStateAt(s,playhead);
     applyCameraState(state);
     if(result.mode==='base'){
       setStatus('SUBJECT · '+targetDefs[id].label.toUpperCase());
+    }else if(result.live){
+      setStatus('LIVE FOCUS → '+targetDefs[id].label.toUpperCase());
     }else{
       setStatus('SUBJECT → '+targetDefs[id].label.toUpperCase()+' · AUTO FOCUS');
     }
@@ -1976,7 +2003,16 @@ function selectTargetAt(clientX,clientY){
   }
   return false;
 }
-renderer.domElement.addEventListener('pointerdown',beginPilotGesture,{capture:true});
+renderer.domElement.addEventListener('pointerdown',e=>{
+  if(playing){
+    if(e.button!==0)return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectTargetAt(e.clientX,e.clientY,true);
+    return;
+  }
+  beginPilotGesture(e);
+},{capture:true});
 
 ui.importGlb.addEventListener('click',()=>ui.importGlbInput.click());
 ui.importGlbInput.addEventListener('change',async e=>{
@@ -2010,6 +2046,7 @@ function showError(msg){ui.error.textContent=msg;ui.error.classList.add('show');
 
 function animate(ts){
   const dt=Math.min(.05,(ts-lastTs)/1000||0);lastTs=ts;
+  frameDt=dt||frameDt;
   if(playing){
     playhead+=dt;
     const total=shotDuration();
