@@ -391,10 +391,12 @@ function posOnSegment(s,i,t){
 }
 
 const silkyCurveCache=new WeakMap();
+const silkyMotionCache=new WeakMap();
 function clearSilky(s){
   if(!s)return;
   s.stabilized=false;
   silkyCurveCache.delete(s);
+  silkyMotionCache.delete(s);
 }
 function silkyCurveFor(s){
   let curve=silkyCurveCache.get(s);
@@ -419,6 +421,70 @@ function silkyProgress(t,ramp=.18){
   }
   return cruise*(t-ramp*.5);
 }
+function silkyMotionFor(s){
+  let profile=silkyMotionCache.get(s);
+  if(profile)return profile;
+
+  const curve=silkyCurveFor(s);
+  const count=Math.max(220,s.points.length*28);
+  const tangents=[];
+  for(let i=0;i<=count;i++)tangents.push(curve.getTangentAt(i/count).normalize());
+
+  let speedFactors=new Array(count+1).fill(1);
+  for(let i=1;i<count;i++){
+    const a=tangents[Math.max(0,i-2)];
+    const b=tangents[Math.min(count,i+2)];
+    const angle=Math.acos(clamp(a.dot(b),-1,1));
+    const turn=clamp(angle/.42,0,1);
+    // Tight turns breathe a little; straights keep momentum.
+    speedFactors[i]=1-.38*smoothstep01(turn);
+  }
+  speedFactors[0]=speedFactors[1];
+  speedFactors[count]=speedFactors[count-1];
+
+  // Low-pass the speed field twice so entering/exiting a bend never feels stepped.
+  for(let pass=0;pass<2;pass++){
+    const next=speedFactors.slice();
+    for(let i=2;i<count-1;i++){
+      next[i]=(
+        speedFactors[i-2]+
+        speedFactors[i-1]*2+
+        speedFactors[i]*3+
+        speedFactors[i+1]*2+
+        speedFactors[i+2]
+      )/9;
+    }
+    speedFactors=next;
+  }
+
+  // Build a normalized time-cost table over equal arc-length samples.
+  const time=[0];
+  let total=0;
+  for(let i=1;i<=count;i++){
+    const avgSpeed=Math.max(.48,(speedFactors[i-1]+speedFactors[i])*.5);
+    total+=1/avgSpeed;
+    time.push(total);
+  }
+  for(let i=0;i<time.length;i++)time[i]/=total||1;
+
+  profile={curve,count,time,speedFactors};
+  silkyMotionCache.set(s,profile);
+  return profile;
+}
+function silkyDistanceAtTime(s,t){
+  const profile=silkyMotionFor(s);
+  const eased=silkyProgress(t,.18);
+  const table=profile.time;
+  let lo=0,hi=profile.count;
+  while(lo<hi){
+    const mid=(lo+hi)>>1;
+    if(table[mid]<eased)lo=mid+1;else hi=mid;
+  }
+  const i=clamp(lo,1,profile.count);
+  const t0=table[i-1],t1=table[i];
+  const f=t1>t0?clamp((eased-t0)/(t1-t0),0,1):0;
+  return ((i-1)+f)/profile.count;
+}
 function segmentAtTime(s,time){
   let cursor=0;
   for(let i=0;i<s.segments.length;i++){
@@ -434,10 +500,10 @@ function cameraStateAt(s,time){
   const total=shotDuration(s);
   if(s.stabilized && s.points.length>=2 && total>0){
     const normalized=clamp(time/total,0,1);
-    const u=silkyProgress(normalized,.18);
-    const curve=silkyCurveFor(s);
-    const p=curve.getPointAt(u);
-    const segment=Math.min(s.segments.length-1,Math.floor(normalized*Math.max(1,s.segments.length)));
+    const u=silkyDistanceAtTime(s,normalized);
+    const profile=silkyMotionFor(s);
+    const p=profile.curve.getPointAt(u);
+    const segment=Math.min(s.segments.length-1,Math.floor(u*Math.max(1,s.segments.length)));
     return {position:p,target:targetFor(s).clone(),roll:s.roll||0,segment,u};
   }
   const hit=segmentAtTime(s,clamp(time,0,total));
@@ -707,7 +773,9 @@ function stabilizeCurrentPath(){
 
   s._lastStabilizeBackup={points:originalPoints,segments:originalSegments};
   s.stabilized=true;
+  s.stabilizeMode='cinematic';
   silkyCurveCache.delete(s);
+  silkyMotionCache.delete(s);
   relabelPoints(s);
   const totalAfter=shotDuration(s);
   playhead=totalAfter*progress;
@@ -720,7 +788,7 @@ function stabilizeCurrentPath(){
   ui.stabilizePath?.classList.remove('done');
   requestAnimationFrame(()=>ui.stabilizePath?.classList.add('done'));
   setTimeout(()=>ui.stabilizePath?.classList.remove('done'),520);
-  setStatus('STABILIZED · PATH + SPEED + TURN');
+  setStatus('STABILIZED · CINEMATIC FLOW');
 }
 ui.stabilizePath?.addEventListener('click',stabilizeCurrentPath);
 
