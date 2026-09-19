@@ -1322,6 +1322,7 @@ const pilotState={
   moved:false,
   basisForward:new THREE.Vector3(0,0,-1),
   basisRight:new THREE.Vector3(1,0,0),
+  startPosition:new THREE.Vector3(),
   intent:'free',
   samples:[]
 };
@@ -1526,6 +1527,26 @@ function drawFrameOverlay(){
     frameCtx.fillStyle='rgba(238,207,252,.96)';
     frameCtx.fill();
 
+    if(pilotState.intent==='crane'){
+      frameCtx.save();
+      frameCtx.setLineDash([5,7]);
+      frameCtx.beginPath();
+      frameCtx.moveTo(ax,18);frameCtx.lineTo(ax,g.h-18);
+      frameCtx.strokeStyle='rgba(238,207,252,.24)';
+      frameCtx.lineWidth=1;
+      frameCtx.stroke();
+      frameCtx.restore();
+    }else if(pilotState.intent==='truck'){
+      frameCtx.save();
+      frameCtx.setLineDash([5,7]);
+      frameCtx.beginPath();
+      frameCtx.moveTo(18,ay);frameCtx.lineTo(g.w-18,ay);
+      frameCtx.strokeStyle='rgba(238,207,252,.24)';
+      frameCtx.lineWidth=1;
+      frameCtx.stroke();
+      frameCtx.restore();
+    }
+
     if(pilotState.samples.length>1){
       // A small screen-space trace of the actual steering hand movement.
       frameCtx.beginPath();
@@ -1727,6 +1748,7 @@ function beginPilotGesture(e){
   pilotState.lastSampleMs=pilotState.startMs;
   pilotState.moved=false;
   pilotState.intent='free';
+  pilotState.startPosition.copy(camera.position);
 
   const startTarget=targetFor(shot());
   pilotState.basisForward.copy(startTarget).sub(camera.position);
@@ -1774,35 +1796,46 @@ function updatePilot(dt,nowMs){
   const right=pilotState.basisRight;
 
   const ax=Math.abs(nx),ay=Math.abs(ny);
-  const verticalIntent=smoothstep01(clamp((ay-ax*1.10)/.34,0,1));
-  const horizontalIntent=smoothstep01(clamp((ax-ay*1.10)/.34,0,1));
-  const axisIntent=Math.max(verticalIntent,horizontalIntent);
-  const freeIntent=1-axisIntent;
+  const verticalIntent=smoothstep01(clamp((ay-ax*1.08)/.30,0,1));
+  const horizontalIntent=smoothstep01(clamp((ax-ay*1.08)/.30,0,1));
+  const travelPx=Math.hypot(
+    pilotState.x-pilotState.anchorX,
+    pilotState.y-pilotState.anchorY
+  );
 
-  // Direct-manipulation semantics:
-  // near-vertical stroke   -> true crane, no hidden forward motion
-  // near-horizontal stroke -> true truck, no hidden orbit
-  // diagonal/free stroke   -> camera drive, preserving depth movement
-  // The blend is continuous, so crossing between these intentions never snaps.
-  const direction=forward.clone().multiplyScalar(.72*freeIntent)
-    .addScaledVector(right,nx*(1.12+.23*freeIntent))
-    .addScaledVector(worldUp,-ny*(1.08-.13*freeIntent));
-  if(direction.lengthSq()<.0001)return;
-  direction.normalize();
-
-  let intent='free';
-  if(verticalIntent>.72)intent='crane';
-  else if(horizontalIntent>.72)intent='truck';
-  if(intent!==pilotState.intent){
-    pilotState.intent=intent;
-    if(intent==='crane')setStatus(ny<0?'CRANE · UP':'CRANE · DOWN');
-    else if(intent==='truck')setStatus(nx<0?'TRUCK · LEFT':'TRUCK · RIGHT');
-    else setStatus('STEER · DEPTH + DIRECTION');
+  // Once a stroke is clearly axial, lock the interpretation for this gesture.
+  // That prevents tiny hand wobble from flipping between crane / drive semantics.
+  if(pilotState.intent==='free' && travelPx>18){
+    if(verticalIntent>.82){
+      pilotState.intent='crane';
+      setStatus(ny<0?'CRANE · DRAW UP':'CRANE · DRAW DOWN');
+    }else if(horizontalIntent>.82){
+      pilotState.intent='truck';
+      setStatus(nx<0?'TRUCK · DRAW LEFT':'TRUCK · DRAW RIGHT');
+    }
   }
 
-  const axisSpeedScale=axisIntent>.7?.82:1;
-  const speed=(.35 + drive*2.35)*axisSpeedScale;
-  const next=camera.position.clone().addScaledVector(direction,speed*dt);
+  let next;
+  if(pilotState.intent==='crane'){
+    const metersPerPixel=3.15/Math.max(360,g.h);
+    next=pilotState.startPosition.clone()
+      .addScaledVector(worldUp,-(pilotState.y-pilotState.anchorY)*metersPerPixel);
+  }else if(pilotState.intent==='truck'){
+    const metersPerPixel=4.6/Math.max(520,g.w);
+    next=pilotState.startPosition.clone()
+      .addScaledVector(right,(pilotState.x-pilotState.anchorX)*metersPerPixel);
+  }else{
+    // Free stroke still behaves as a depth-capable camera drive.
+    const axisIntent=Math.max(verticalIntent,horizontalIntent);
+    const freeIntent=1-axisIntent;
+    const direction=forward.clone().multiplyScalar(.72*freeIntent)
+      .addScaledVector(right,nx*(1.12+.23*freeIntent))
+      .addScaledVector(worldUp,-ny*(1.08-.13*freeIntent));
+    if(direction.lengthSq()<.0001)return;
+    direction.normalize();
+    const speed=.35 + drive*2.35;
+    next=camera.position.clone().addScaledVector(direction,speed*dt);
+  }
   next.x=clamp(next.x,-5.2,5.2);
   next.y=clamp(next.y,.35,3.7);
   next.z=clamp(next.z,-5.2,7.8);
