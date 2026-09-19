@@ -648,6 +648,15 @@ window.addEventListener('keydown',e=>{
     e.preventDefault();
     compileMotionGesture();
   }
+  if(e.key==='Escape' && endpointActive()){
+    e.preventDefault();
+    resetMotionGesture();
+    setStatus('GESTURE · RESET');
+  }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){
+    e.preventDefault();
+    if(endpointActive())resetMotionGesture();else undoLastChainMove();
+  }
   if(e.key==='0'){
     ui.origin.click();
   }
@@ -749,7 +758,7 @@ function updateMotionUI(){
 
   const visible=endpointActive();
   ui.ribbonHandle.style.opacity=visible?'1':'0';
-  ui.ribbonHandle.style.pointerEvents='none';
+  ui.ribbonHandle.style.pointerEvents=visible?'auto':'none';
   ui.ghostFrames.forEach((el,i)=>{
     positionMotionElement(el,motionState.rhythm[i]);
     el.style.opacity=visible?'1':'0';
@@ -757,6 +766,12 @@ function updateMotionUI(){
   });
   ui.motionApply.disabled=!visible;
   ui.motionApply.style.opacity=visible?'1':'.45';
+  if(ui.motionApply){
+    ui.motionApply.textContent=(shot()._chainMoves||0)>0?'Add next':'Apply';
+  }
+  if(ui.motionReset){
+    ui.motionReset.title=visible?'Reset current gesture':'Undo last committed move';
+  }
 
   drawFrameOverlay();
 }
@@ -947,6 +962,9 @@ function compileMotionGesture(){
   }
   stopPlayback();controls.enabled=true;
   const s=shot(),preview=worldMotionPreview(s);
+  const beforePoints=s.points.length;
+  const beforeSegments=s.segments.length;
+  const previousBrakeOut=s.segments.length?s.segments[s.segments.length-1].brakeOut:null;
   const prev=s.segments[s.segments.length-1]||{duration:1.8,speed:1,accelIn:0,brakeOut:0};
   const inheritedSpeed=prev.speed||1;
 
@@ -1002,6 +1020,12 @@ function compileMotionGesture(){
   if(ui.heightHint)ui.heightHint.textContent='height '+preview.end.y.toFixed(2)+' m';
 
   s._chainMoves=(s._chainMoves||0)+1;
+  s._chainHistory=s._chainHistory||[];
+  s._chainHistory.push({
+    pointsAdded:s.points.length-beforePoints,
+    segmentsAdded:s.segments.length-beforeSegments,
+    previousBrakeOut
+  });
 
   // Re-anchor: the camera is now physically at the committed endpoint.
   // Reset only the gesture surface, not the authored path, so the next drag
@@ -1033,7 +1057,36 @@ ui.qReset?.addEventListener('click',()=>{resetMotionGesture();setStatus('MOVE ·
 ui.qApply?.addEventListener('click',compileMotionGesture);
 ui.motionApply?.addEventListener('click',compileMotionGesture);
 if(ui.motionApply)ui.motionApply.title='Apply and continue from this endpoint';
-ui.motionReset?.addEventListener('click',()=>{resetMotionGesture();setStatus('GESTURE · RESET')});
+function undoLastChainMove(){
+  const s=shot(),history=s._chainHistory;
+  if(!history?.length)return false;
+  stopPlayback();controls.enabled=true;
+  const step=history.pop();
+  s.points.splice(Math.max(1,s.points.length-step.pointsAdded),step.pointsAdded);
+  s.segments.splice(Math.max(0,s.segments.length-step.segmentsAdded),step.segmentsAdded);
+  if(s.segments.length && step.previousBrakeOut!==null){
+    s.segments[s.segments.length-1].brakeOut=step.previousBrakeOut;
+  }
+  s._chainMoves=Math.max(0,(s._chainMoves||1)-1);
+  relabelPoints(s);
+  selectedPoint=s.points.length-1;
+  selectedSegment=Math.max(0,s.segments.length-1);
+  playhead=shotDuration(s);
+  refreshUI();
+  applyCameraState(cameraStateAt(s,playhead));
+  resetMotionGesture();
+  setStatus('UNDO · LAST MOVE');
+  return true;
+}
+ui.motionReset?.addEventListener('click',()=>{
+  if(endpointActive()){
+    resetMotionGesture();
+    setStatus('GESTURE · RESET');
+  }else if(!undoLastChainMove()){
+    resetMotionGesture();
+    setStatus('READY');
+  }
+});
 
 function beginMotionDrag(mode,e,index=-1){
   e.preventDefault();e.stopPropagation();
@@ -1069,6 +1122,12 @@ ui.nextFrame?.addEventListener('pointerdown',e=>{
 ui.frameResize?.addEventListener('pointerdown',e=>beginMotionDrag('resize',e));
 ui.frameRotate?.addEventListener('pointerdown',e=>beginMotionDrag('rotate',e));
 ui.ribbonHandle?.addEventListener('pointerdown',e=>beginMotionDrag('bend',e));
+ui.ribbonHandle?.addEventListener('dblclick',e=>{
+  e.preventDefault();e.stopPropagation();
+  motionState.bendX=0;motionState.bendY=0;
+  updateMotionUI();
+  setStatus('STRAIGHT');
+});
 ui.ghostFrames.forEach((el,i)=>el?.addEventListener('pointerdown',e=>beginMotionDrag('rhythm',e,i)));
 
 window.addEventListener('pointermove',e=>{
@@ -1112,8 +1171,13 @@ window.addEventListener('pointermove',e=>{
     motionState.scale=snap.value;
     motionState.snapScale=snap.strength>.3?snap.target:null;
   }else if(d.mode==='bend'){
-    motionState.bendX=d.bendX+dx;
-    motionState.bendY=d.bendY+dy;
+    const g=stageMetrics();
+    const rawX=rubberClamp(d.bendX+dx,-g.w*.28,g.w*.28,30);
+    const rawY=rubberClamp(d.bendY+dy,-g.h*.28,g.h*.28,28);
+    const snapX=magnetic(rawX,[0],22,.86);
+    const snapY=magnetic(rawY,[0],18,.82);
+    motionState.bendX=snapX.value;
+    motionState.bendY=snapY.value;
   }else if(d.mode==='rotate'){
     const r=ui.stage.getBoundingClientRect();
     const cx=r.left+d.centerX,cy=r.top+d.centerY;
@@ -1128,7 +1192,7 @@ window.addEventListener('pointermove',e=>{
     motionState.rhythm[d.index]=clamp(t,lo,hi);
   }
   updateMotionUI();
-  setStatus(d.mode==='frame'?'FLOW':(d.mode==='rhythm'?'RHYTHM':'MOTION PREVIEW'));
+  setStatus(d.mode==='frame'?'FLOW':(d.mode==='bend'?'TURN':(d.mode==='rhythm'?'RHYTHM':'MOTION PREVIEW')));
 });
 function endMotionDrag(e){
   if(!motionDrag || (e?.pointerId!==undefined && motionDrag.pointerId!==undefined && e.pointerId!==motionDrag.pointerId))return;
