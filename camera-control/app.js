@@ -1111,8 +1111,10 @@ function beginPilotGesture(e){
 function updatePilotPointer(e){
   if(!pilotState.active || e.pointerId!==pilotState.pointerId)return;
   const r=ui.stage.getBoundingClientRect();
-  pilotState.x=clamp(e.clientX-r.left,0,r.width);
-  pilotState.y=clamp(e.clientY-r.top,0,r.height);
+  // Pointer capture keeps steering alive even beyond the visible canvas.
+  // Do not clamp to the frame: the frame is a viewport, not a control boundary.
+  pilotState.x=e.clientX-r.left;
+  pilotState.y=e.clientY-r.top;
   if(Math.hypot(pilotState.x-pilotState.anchorX,pilotState.y-pilotState.anchorY)>4){
     pilotState.moved=true;
   }
@@ -1121,7 +1123,7 @@ function updatePilotPointer(e){
 function updatePilot(dt,nowMs){
   if(!pilotState.active)return;
   const g=stageMetrics();
-  const radius=Math.max(90,Math.min(g.w,g.h)*.22);
+  const radius=Math.max(140,Math.min(g.w,g.h)*.30);
   const nx=clamp((pilotState.x-pilotState.anchorX)/radius,-1,1);
   const ny=clamp((pilotState.y-pilotState.anchorY)/radius,-1,1);
   const mag=clamp(Math.hypot(nx,ny),0,1);
