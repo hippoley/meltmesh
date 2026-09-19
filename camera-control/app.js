@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v,a,b) => Math.max(a, Math.min(b,v));
@@ -100,6 +104,20 @@ scene.fog = new THREE.Fog(0x171419, 12, 30);
 
 const camera = new THREE.PerspectiveCamera(52, 1, 0.05, 80);
 camera.position.set(0, 2.1, 8.2);
+const BASE_FOV=52;
+
+const composer=new EffectComposer(renderer);
+const renderPass=new RenderPass(scene,camera);
+const bokehPass=new BokehPass(scene,camera,{
+  focus:5,
+  aperture:.0028,
+  maxblur:.0035
+});
+const outputPass=new OutputPass();
+composer.addPass(renderPass);
+composer.addPass(bokehPass);
+composer.addPass(outputPass);
+bokehPass.enabled=false;
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -353,6 +371,18 @@ function subjectIdAtTime(s=shot(),time=playhead){
   }
   return id;
 }
+function subjectTransferActivity(s=shot(),time=playhead){
+  let activity=0;
+  for(const key of focusKeysFor(s)){
+    const end=clamp(+key.time||0,0,shotDuration(s));
+    const blend=clamp(+key.blend||.85,.35,1.6);
+    const start=Math.max(0,end-blend);
+    if(time<start || time>end)continue;
+    const u=clamp((time-start)/Math.max(.001,end-start),0,1);
+    activity=Math.max(activity,Math.sin(Math.PI*u));
+  }
+  return activity;
+}
 function setSubjectAtTime(s,id,time=playhead){
   const total=shotDuration(s);
   if(total<.2 || time<=.08){
@@ -580,9 +610,33 @@ function applyCameraState(state){
   controls.update();
   if(state.roll) camera.rotateZ(state.roll);
 }
+function updateCinematicOptics(s=shot(),time=playhead){
+  const hasTransfers=Array.isArray(s.focusKeys)&&s.focusKeys.length>0;
+  const active=playing&&hasTransfers;
+  bokehPass.enabled=active;
+
+  const activity=active?subjectTransferActivity(s,time):0;
+  const desiredFov=BASE_FOV-activity*.8;
+  if(Math.abs(camera.fov-desiredFov)>.002){
+    camera.fov=desiredFov;
+    camera.updateProjectionMatrix();
+  }
+
+  if(!active)return false;
+
+  // Pull focus a fraction before the gaze fully arrives on the next subject.
+  const focusLead=.10;
+  const focusTarget=targetFor(s,Math.min(shotDuration(s),time+focusLead));
+  const focusDistance=Math.max(.2,camera.position.distanceTo(focusTarget));
+  bokehPass.uniforms.focus.value=focusDistance;
+  bokehPass.uniforms.aperture.value=.0026+activity*.0026;
+  bokehPass.uniforms.maxblur.value=.0032+activity*.0048;
+  return true;
+}
 
 function setTargetMarker(){
   Object.values(targetDefs).forEach(x=>{if(x.marker)x.marker.visible=false});
+  if(playing)return;
   const def=targetDefs[subjectIdAtTime(shot(),playhead)];
   if(def?.marker) def.marker.visible=true;
 }
@@ -1752,6 +1806,8 @@ ui.homeView.addEventListener('click',()=>{
 function resizeRenderer(){
   const r=ui.stage.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);
   renderer.setSize(r.width,r.height,false);
+  composer.setPixelRatio(Math.min(dpr,1.15));
+  composer.setSize(r.width,r.height);
   camera.aspect=r.width/r.height;camera.updateProjectionMatrix();
   ui.frameOverlay.width=Math.round(r.width*dpr);
   ui.frameOverlay.height=Math.round(r.height*dpr);
@@ -1914,7 +1970,7 @@ function selectTargetAt(clientX,clientY){
     if(result.mode==='base'){
       setStatus('SUBJECT · '+targetDefs[id].label.toUpperCase());
     }else{
-      setStatus('SUBJECT → '+targetDefs[id].label.toUpperCase()+' · '+result.time.toFixed(1)+'s');
+      setStatus('SUBJECT → '+targetDefs[id].label.toUpperCase()+' · AUTO FOCUS');
     }
     return true;
   }
@@ -1983,7 +2039,9 @@ function animate(ts){
   drawMini(topCtx,ui.top,'top');
   drawMini(sideCtx,ui.side,'side');
   drawFrameOverlay();
-  renderer.render(scene,camera);
+  const cinematicOptics=updateCinematicOptics(shot(),playhead);
+  if(cinematicOptics)composer.render(dt);
+  else renderer.render(scene,camera);
   requestAnimationFrame(animate);
 }
 
