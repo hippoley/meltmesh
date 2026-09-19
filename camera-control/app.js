@@ -397,6 +397,10 @@ function clearSilky(s){
   s.stabilized=false;
   silkyCurveCache.delete(s);
   silkyMotionCache.delete(s);
+  if(s===shot() && ui.stabilizePath){
+    ui.stabilizePath.classList.remove('active','done');
+    ui.stabilizePath.textContent='一键防抖防止卡顿';
+  }
 }
 function silkyCurveFor(s){
   let curve=silkyCurveCache.get(s);
@@ -545,6 +549,10 @@ function switchShot(index,snap=true){
   refreshUI();
   if(snap) applyCameraState(cameraStateAt(shot(),0));
   resetMotionGesture();
+  if(ui.stabilizePath){
+    ui.stabilizePath.classList.toggle('active',!!shot().stabilized);
+    ui.stabilizePath.textContent=shot().stabilized?'已防抖 · 丝滑':'一键防抖防止卡顿';
+  }
   setStatus('SHOT · '+shot().name.toUpperCase());
 }
 
@@ -712,6 +720,12 @@ ui.deletePoint.addEventListener('click',()=>{
 
 function stabilizeCurrentPath(){
   const s=shot();
+  if(s?.stabilized){
+    ui.stabilizePath?.classList.add('done');
+    setTimeout(()=>ui.stabilizePath?.classList.remove('done'),420);
+    setStatus('STABILIZED · ALREADY SILKY');
+    return;
+  }
   if(!s || s.points.length<3 || s.segments.length<2){
     setStatus('STABILIZE · NEED MORE PATH');
     return;
@@ -785,9 +799,13 @@ function stabilizeCurrentPath(){
   applyCameraState(cameraStateAt(s,playhead));
   refreshTimeline();
 
-  ui.stabilizePath?.classList.remove('done');
-  requestAnimationFrame(()=>ui.stabilizePath?.classList.add('done'));
-  setTimeout(()=>ui.stabilizePath?.classList.remove('done'),520);
+  if(ui.stabilizePath){
+    ui.stabilizePath.classList.add('active');
+    ui.stabilizePath.classList.remove('done');
+    ui.stabilizePath.textContent='已防抖 · 丝滑';
+    requestAnimationFrame(()=>ui.stabilizePath?.classList.add('done'));
+    setTimeout(()=>ui.stabilizePath?.classList.remove('done'),520);
+  }
   setStatus('STABILIZED · CINEMATIC FLOW');
 }
 ui.stabilizePath?.addEventListener('click',stabilizeCurrentPath);
