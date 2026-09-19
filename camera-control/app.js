@@ -697,6 +697,19 @@ const motionState={
   snapRot:null
 };
 let motionDrag=null;
+const pilotState={
+  active:false,
+  pointerId:null,
+  captureEl:null,
+  anchorX:0,
+  anchorY:0,
+  x:0,
+  y:0,
+  startMs:0,
+  lastSampleMs:0,
+  moved:false,
+  samples:[]
+};
 
 function quickValue(el){return +(el?.value||0)}
 function mix(a,b,t){return a+(b-a)*t}
@@ -861,10 +874,50 @@ function drawFrameOverlay(){
   frameCtx.clearRect(0,0,g.w,g.h);
   if(playing)return;
 
-  // Current frame is the fixed reference.
-  frameCtx.strokeStyle='rgba(255,255,255,.44)';
-  frameCtx.lineWidth=1;
-  frameCtx.strokeRect(g.baseX-g.baseW/2,g.baseY-g.baseH/2,g.baseW,g.baseH);
+  if(pilotState.active){
+    const ax=pilotState.anchorX,ay=pilotState.anchorY;
+    const px=pilotState.x,py=pilotState.y;
+    const dx=px-ax,dy=py-ay;
+    const mag=Math.min(1,Math.hypot(dx,dy)/Math.max(90,Math.min(g.w,g.h)*.22));
+
+    frameCtx.beginPath();
+    frameCtx.moveTo(ax,ay);
+    frameCtx.lineTo(px,py);
+    frameCtx.strokeStyle='rgba(220,170,248,'+(0.28+mag*.48)+')';
+    frameCtx.lineWidth=2;
+    frameCtx.lineCap='round';
+    frameCtx.stroke();
+
+    frameCtx.beginPath();
+    frameCtx.arc(ax,ay,15,0,Math.PI*2);
+    frameCtx.strokeStyle='rgba(255,255,255,.28)';
+    frameCtx.lineWidth=1;
+    frameCtx.stroke();
+
+    frameCtx.beginPath();
+    frameCtx.arc(px,py,5+mag*3,0,Math.PI*2);
+    frameCtx.fillStyle='rgba(238,207,252,.96)';
+    frameCtx.fill();
+
+    if(pilotState.samples.length>1){
+      // A small screen-space trace of the actual steering hand movement.
+      frameCtx.beginPath();
+      pilotState.samples.forEach((sample,i)=>{
+        if(!sample.screen)return;
+        if(!i)frameCtx.moveTo(sample.screen.x,sample.screen.y);
+        else frameCtx.lineTo(sample.screen.x,sample.screen.y);
+      });
+      frameCtx.strokeStyle='rgba(255,224,139,.24)';
+      frameCtx.lineWidth=1;
+      frameCtx.stroke();
+    }
+    return;
+  }
+
+  // In author mode there is deliberately no framing box. The scene itself is
+  // the control surface. Old frame/ribbon feedback only appears for explicit
+  // advanced-axis edits.
+  if(!endpointActive())return;
 
   if(motionState.snapX!==null){
     frameCtx.beginPath();frameCtx.moveTo(motionState.snapX,0);frameCtx.lineTo(motionState.snapX,g.h);
@@ -875,9 +928,6 @@ function drawFrameOverlay(){
     frameCtx.strokeStyle='rgba(255,228,148,.34)';frameCtx.lineWidth=1;frameCtx.stroke();
   }
 
-  if(!endpointActive())return;
-
-  // Motion Ribbon: the hand stroke itself is the path.
   if(motionState.trace.length>2){
     frameCtx.beginPath();
     for(let i=0;i<=36;i++){
@@ -890,23 +940,11 @@ function drawFrameOverlay(){
     frameCtx.lineCap='round';
     frameCtx.lineJoin='round';
     frameCtx.stroke();
-  }else{
-    const p0=curve2D(0),p1={
-      x:(p0.x+curve2D(1).x)/2+motionState.bendX,
-      y:(p0.y+curve2D(1).y)/2+motionState.bendY
-    },p2=curve2D(1);
-    frameCtx.beginPath();
-    frameCtx.moveTo(p0.x,p0.y);
-    frameCtx.quadraticCurveTo(p1.x,p1.y,p2.x,p2.y);
-    frameCtx.strokeStyle='rgba(220,170,248,.65)';
-    frameCtx.lineWidth=1.5;
-    frameCtx.stroke();
   }
 
-  // Equal-time ticks make the captured rhythm legible.
-  motionState.rhythm.forEach((t,i)=>{
+  motionState.rhythm.forEach(t=>{
     const p=curve2D(t);
-    frameCtx.fillStyle=i===1?'rgba(255,228,148,.95)':'rgba(233,202,249,.82)';
+    frameCtx.fillStyle='rgba(233,202,249,.82)';
     frameCtx.beginPath();frameCtx.arc(p.x,p.y,2.6,0,Math.PI*2);frameCtx.fill();
   });
 }
@@ -1041,6 +1079,192 @@ function compileMotionGesture(){
   setTimeout(()=>ui.motionUI?.classList.remove('reanchor'),220);
   setStatus('CONTINUE · DRAW AGAIN');
 }
+
+function beginPilotGesture(e){
+  if(navigationMode || playing || e.button!==0)return;
+  e.preventDefault();e.stopPropagation();
+  stopPlayback();
+  navigationMode=false;
+  syncNavigationMode();
+
+  const r=ui.stage.getBoundingClientRect();
+  pilotState.active=true;
+  pilotState.pointerId=e.pointerId;
+  pilotState.captureEl=e.currentTarget;
+  pilotState.anchorX=e.clientX-r.left;
+  pilotState.anchorY=e.clientY-r.top;
+  pilotState.x=pilotState.anchorX;
+  pilotState.y=pilotState.anchorY;
+  pilotState.startMs=performance.now();
+  pilotState.lastSampleMs=pilotState.startMs;
+  pilotState.moved=false;
+  pilotState.samples=[{
+    position:camera.position.clone(),
+    time:0,
+    screen:{x:pilotState.anchorX,y:pilotState.anchorY}
+  }];
+  try{e.currentTarget?.setPointerCapture?.(e.pointerId)}catch{}
+  ui.stage?.classList.add('piloting');
+  setStatus('STEER · RELEASE TO KEEP');
+}
+
+function updatePilotPointer(e){
+  if(!pilotState.active || e.pointerId!==pilotState.pointerId)return;
+  const r=ui.stage.getBoundingClientRect();
+  pilotState.x=clamp(e.clientX-r.left,0,r.width);
+  pilotState.y=clamp(e.clientY-r.top,0,r.height);
+  if(Math.hypot(pilotState.x-pilotState.anchorX,pilotState.y-pilotState.anchorY)>4){
+    pilotState.moved=true;
+  }
+}
+
+function updatePilot(dt,nowMs){
+  if(!pilotState.active)return;
+  const g=stageMetrics();
+  const radius=Math.max(90,Math.min(g.w,g.h)*.22);
+  const nx=clamp((pilotState.x-pilotState.anchorX)/radius,-1,1);
+  const ny=clamp((pilotState.y-pilotState.anchorY)/radius,-1,1);
+  const mag=clamp(Math.hypot(nx,ny),0,1);
+  const drive=smoothstep01(clamp((mag-.06)/.94,0,1));
+  if(drive<=0)return;
+
+  const target=targetFor(shot());
+  const forward=target.clone().sub(camera.position);
+  if(forward.lengthSq()<.0001)forward.set(0,0,-1);else forward.normalize();
+
+  const worldUp=new THREE.Vector3(0,1,0);
+  let right=new THREE.Vector3().crossVectors(forward,worldUp);
+  if(right.lengthSq()<.0001)right.set(1,0,0);else right.normalize();
+
+  // Joystick semantics:
+  // left/right -> orbit/strafe around the target
+  // up/down    -> rise/fall
+  // distance from the anchor -> speed
+  // a forward component is always present, making a continuous "camera drive".
+  const direction=forward.clone().multiplyScalar(.72)
+    .addScaledVector(right,nx*1.35)
+    .addScaledVector(worldUp,-ny*.95);
+  if(direction.lengthSq()<.0001)return;
+  direction.normalize();
+
+  const speed=.35 + drive*2.35;
+  const next=camera.position.clone().addScaledVector(direction,speed*dt);
+  next.x=clamp(next.x,-5.2,5.2);
+  next.y=clamp(next.y,.35,3.7);
+  next.z=clamp(next.z,-5.2,7.8);
+
+  applyCameraState({position:next,target:target.clone(),roll:shot().roll||0});
+
+  if(nowMs-pilotState.lastSampleMs>=55){
+    const elapsed=nowMs-pilotState.startMs;
+    const last=pilotState.samples[pilotState.samples.length-1];
+    if(!last || last.position.distanceTo(next)>.035){
+      pilotState.samples.push({
+        position:next.clone(),
+        time:elapsed,
+        screen:{x:pilotState.x,y:pilotState.y}
+      });
+      if(pilotState.samples.length>180)pilotState.samples.shift();
+      pilotState.lastSampleMs=nowMs;
+    }
+  }
+}
+
+function compactPilotSamples(samples,maxPoints=18){
+  if(samples.length<=2)return samples;
+  const out=[samples[0]];
+  let last=out[0];
+  for(let i=1;i<samples.length-1;i++){
+    const p=samples[i];
+    const dist=last.position.distanceTo(p.position);
+    const elapsed=p.time-last.time;
+    if(dist>.16 || elapsed>220){
+      out.push(p);last=p;
+    }
+  }
+  out.push(samples[samples.length-1]);
+  if(out.length<=maxPoints)return out;
+  const reduced=[out[0]];
+  for(let i=1;i<maxPoints-1;i++){
+    reduced.push(out[Math.round(i*(out.length-1)/(maxPoints-1))]);
+  }
+  reduced.push(out[out.length-1]);
+  return reduced;
+}
+
+function commitPilotGesture(){
+  const s=shot();
+  const samples=compactPilotSamples(pilotState.samples);
+  if(samples.length<2)return false;
+
+  const beforePoints=s.points.length;
+  const beforeSegments=s.segments.length;
+  const previousBrakeOut=s.segments.length?s.segments[s.segments.length-1].brakeOut:null;
+  if(s.segments.length)s.segments[s.segments.length-1].brakeOut=0;
+
+  let previous=samples[0];
+  for(let i=1;i<samples.length;i++){
+    const sample=samples[i];
+    const p=sample.position;
+    s.points.push([
+      clamp(p.x,-5.2,5.2),
+      clamp(p.y,.35,3.7),
+      clamp(p.z,-5.2,7.8)
+    ]);
+    const duration=clamp((sample.time-previous.time)/1000,.07,1.5);
+    s.segments.push({
+      duration,
+      speed:1,
+      accelIn:0,
+      brakeOut:i===samples.length-1?3:0
+    });
+    previous=sample;
+  }
+
+  relabelPoints(s);
+  selectedPoint=s.points.length-1;
+  selectedSegment=s.segments.length-1;
+  s._chainMoves=(s._chainMoves||0)+1;
+  s._chainHistory=s._chainHistory||[];
+  s._chainHistory.push({
+    pointsAdded:s.points.length-beforePoints,
+    segmentsAdded:s.segments.length-beforeSegments,
+    previousBrakeOut
+  });
+
+  playhead=shotDuration(s);
+  refreshUI();
+  refreshTimeline();
+  setStatus('CONTINUE · STEER AGAIN');
+  return true;
+}
+
+function endPilotGesture(e){
+  if(!pilotState.active || (e?.pointerId!==undefined && e.pointerId!==pilotState.pointerId))return;
+  const wasMoved=pilotState.moved;
+  const startClientX=(ui.stage.getBoundingClientRect().left+pilotState.anchorX);
+  const startClientY=(ui.stage.getBoundingClientRect().top+pilotState.anchorY);
+
+  try{pilotState.captureEl?.releasePointerCapture?.(pilotState.pointerId)}catch{}
+  pilotState.active=false;
+  ui.stage?.classList.remove('piloting');
+
+  if(!wasMoved){
+    selectTargetAt(startClientX,startClientY);
+    setStatus('TARGET SELECTED · HOLD TO STEER');
+  }else{
+    commitPilotGesture();
+  }
+
+  pilotState.pointerId=null;
+  pilotState.captureEl=null;
+  pilotState.samples=[];
+  drawFrameOverlay();
+}
+
+window.addEventListener('pointermove',updatePilotPointer,{passive:true});
+window.addEventListener('pointerup',endPilotGesture);
+window.addEventListener('pointercancel',endPilotGesture);
 
 function syncAxesToMotion(){
   const g=stageMetrics();
@@ -1233,10 +1457,15 @@ ui.timeline.addEventListener('input',e=>{stopPlayback();syncNavigationMode();pla
 
 ui.homeView.addEventListener('click',()=>{
   stopPlayback();
+  if(pilotState.active){
+    pilotState.active=false;
+    pilotState.samples=[];
+    ui.stage?.classList.remove('piloting');
+  }
   navigationMode=!navigationMode;
   if(navigationMode)resetMotionGesture();
   syncNavigationMode();
-  setStatus(navigationMode?'NAVIGATE · DRAG SCENE':'AUTHOR · DRAW MOTION');
+  setStatus(navigationMode?'NAVIGATE · DRAG SCENE':'AUTHOR · HOLD + STEER');
 });
 
 function resizeRenderer(){
@@ -1404,10 +1633,7 @@ function selectTargetAt(clientX,clientY){
   }
   return false;
 }
-renderer.domElement.addEventListener('pointerdown',e=>{
-  if(navigationMode || playing || e.button!==0)return;
-  beginMotionDrag('frame',e);
-},{capture:true});
+renderer.domElement.addEventListener('pointerdown',beginPilotGesture,{capture:true});
 
 ui.importGlb.addEventListener('click',()=>ui.importGlbInput.click());
 ui.importGlbInput.addEventListener('change',async e=>{
@@ -1461,6 +1687,8 @@ function animate(ts){
     }
     if(playing || playhead<=shotDuration()) applyCameraState(cameraStateAt(shot(),playhead));
     refreshTimeline();
+  } else if(pilotState.active) {
+    updatePilot(dt,ts);
   } else {
     controls.update();
   }
@@ -1478,6 +1706,6 @@ applyCameraState(cameraStateAt(shot(),0));
 navigationMode=false;
 syncNavigationMode();
 resetMotionGesture();
-setStatus('DRAG ANYWHERE');
+setStatus('HOLD + STEER');
 ui.loading.classList.add('hidden');
 requestAnimationFrame(animate);
