@@ -59,11 +59,23 @@ body{display:flex;justify-content:center}
 .next-frame:hover .rotate-handle{opacity:1}
 .rotate-handle::after{content:"";position:absolute;left:50%;top:10px;width:1px;height:12px;background:rgba(220,170,248,.7)}
 .ribbon-handle{
-  position:absolute;width:14px;height:14px;border-radius:50%;border:0;background:#fff;
-  box-shadow:0 0 0 3px rgba(122,32,210,.20),0 2px 8px rgba(0,0,0,.18);
-  transform:translate(-50%,-50%);pointer-events:none;touch-action:none
+  position:absolute;width:30px;height:30px;border-radius:50%;border:0;background:transparent;
+  transform:translate(-50%,-50%);touch-action:none;cursor:grab;
+  padding:0
 }
-.ribbon-handle::after{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--accent)}
+.ribbon-handle::before{
+  content:"";position:absolute;inset:8px;border-radius:50%;background:#fff;
+  box-shadow:0 0 0 3px rgba(122,32,210,.20),0 2px 8px rgba(0,0,0,.18)
+}
+.ribbon-handle::after{
+  content:"";position:absolute;inset:12px;border-radius:50%;background:var(--accent)
+}
+.ribbon-handle:active{cursor:grabbing}
+@media (hover:hover) and (pointer:fine){
+  .ribbon-handle:hover::before{
+    box-shadow:0 0 0 5px rgba(122,32,210,.16),0 3px 12px rgba(0,0,0,.20)
+  }
+}
 .ghost-frame{
   position:absolute;border:1px solid rgba(195,128,230,.56);
   pointer-events:none;touch-action:none;transform-origin:center center;
@@ -220,4 +232,13 @@ input[type=range]::-moz-range-thumb{width:11px;height:17px;border:0;border-radiu
 @media (prefers-reduced-motion:reduce){
   .motion-ui.reanchor .next-frame,
   .motion-ui.reanchor .motion-apply{animation:none}
+}
+
+
+/* chained motion refinement */
+.motion-ui.dragging .ribbon-handle::before{
+  box-shadow:0 0 0 5px rgba(122,32,210,.18),0 3px 12px rgba(0,0,0,.22);
+}
+.motion-ui.reanchor .ribbon-handle{
+  opacity:0 !important;
 }
