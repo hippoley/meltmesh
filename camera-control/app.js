@@ -369,7 +369,7 @@ function targetFor(s=shot(),time=playhead){
     const next=rawTargetPosition(key.targetId,s);
     if(time<start)return current;
     if(time<keyTime){
-      const u=smootherstep01((time-start)/Math.max(.001,keyTime-start));
+      const u=smootheststep01((time-start)/Math.max(.001,keyTime-start));
       return current.clone().lerp(next,u);
     }
     currentId=key.targetId;
@@ -808,25 +808,50 @@ function desiredCameraQuaternion(position,target,roll=0){
 function applyCameraState(state){
   if(playing && !navigationMode){
     const dt=Math.max(1/240,frameDt);
-    const budget=perceptualMotionBudget(shot(),playhead);
+    const s=shot();
+    const total=Math.max(.001,shotDuration(s));
+    const budget=perceptualMotionBudget(s,playhead);
+    const softness=clamp(subjectTransferActivity(s,playhead),0,1);
 
-    // Translation is only state-smoothed after the user opts into stabilization.
-    // This keeps raw authored paths exact while stabilized playback feels physically continuous.
-    const bodyPosition=shot().stabilized
+    // A tiny predictive look-ahead compensates the physical filter's phase lag.
+    // It grows during a focus handoff, where a real operator anticipates the turn.
+    const lookAhead=s.stabilized?mix(.035,.085,softness):0;
+    const predicted=s.stabilized
+      ? cameraStateAt(s,Math.min(total,playhead+lookAhead))
+      : state;
+
+    let bodyPosition=s.stabilized
       ? stepThirdOrderVector(
-          perceptualPositionState,state.position,dt,
+          perceptualPositionState,predicted.position,dt,
           budget.positionOmega,budget.positionJerk,budget.positionAccel,8.5
-        )
-      : state.position;
+        ).clone()
+      : state.position.clone();
+
+    // Land exactly on the authored endpoint without a last-frame snap.
+    // 7th-order smoothstep gives zero velocity/acceleration/jerk at both blend edges.
+    const remaining=total-playhead;
+    if(s.stabilized && remaining<.24){
+      const settle=smootheststep01(clamp((.24-remaining)/.24,0,1));
+      bodyPosition.lerp(state.position,settle);
+    }
 
     camera.position.copy(bodyPosition);
     controls.target.copy(state.target);
 
-    const desired=desiredCameraQuaternion(camera.position,state.target,state.roll||0);
+    const desiredTarget=predicted.target||state.target;
+    const desiredRoll=predicted.roll??state.roll??0;
+    const desired=desiredCameraQuaternion(camera.position,desiredTarget,desiredRoll);
     const smoothOrientation=stepThirdOrderQuaternion(
       perceptualRotationState,desired,dt,
       budget.rotationOmega,budget.rotationJerk,budget.rotationAccel,2.6
-    );
+    ).clone();
+
+    if(s.stabilized && remaining<.20){
+      const settle=smootheststep01(clamp((.20-remaining)/.20,0,1));
+      const exact=desiredCameraQuaternion(camera.position,state.target,state.roll||0);
+      smoothOrientation.slerp(exact,settle);
+    }
+
     camera.quaternion.copy(smoothOrientation);
     cinematicOrientationPrimed=true;
   }else{
@@ -1262,6 +1287,11 @@ function quickValue(el){return +(el?.value||0)}
 function mix(a,b,t){return a+(b-a)*t}
 function smoothstep01(t){t=clamp(t,0,1);return t*t*(3-2*t)}
 function smootherstep01(t){t=clamp(t,0,1);return t*t*t*(t*(t*6-15)+10)}
+function smootheststep01(t){
+  t=clamp(t,0,1);
+  const t2=t*t,t3=t2*t,t4=t3*t;
+  return 35*t4-84*t4*t+70*t4*t2-20*t4*t3;
+}
 function magnetic(value,targets,radius,strength=.72){
   let best=null,bestD=Infinity;
   for(const target of targets){
