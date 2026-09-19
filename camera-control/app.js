@@ -62,7 +62,8 @@ const ui = {
   motionReset: $('motionReset'),
   advancedDrawer: $('advancedDrawer'),
   advancedToggle: $('advancedToggle'),
-  advancedClose: $('advancedClose')
+  advancedClose: $('advancedClose'),
+  stabilizePath: $('stabilizePath')
 };
 
 function setAdvancedOpen(open){
@@ -601,6 +602,84 @@ ui.deletePoint.addEventListener('click',()=>{
   while(s.segments.length<s.points.length-1)s.segments.push({duration:1.8,speed:1,accelIn:5,brakeOut:5});
   relabelPoints(s);selectedPoint=clamp(selectedPoint,0,s.points.length-1);selectedSegment=clamp(Math.min(selectedPoint,s.segments.length-1),0,s.segments.length-1);refreshUI();setStatus('POINT DELETED');
 });
+
+function stabilizeCurrentPath(){
+  const s=shot();
+  if(!s || s.points.length<3 || s.segments.length<2){
+    setStatus('STABILIZE · NEED MORE PATH');
+    return;
+  }
+
+  stopPlayback();
+  const totalBefore=shotDuration(s);
+  const progress=totalBefore>0?clamp(playhead/totalBefore,0,1):1;
+  const originalPoints=cloneData(s.points);
+  const originalSegments=cloneData(s.segments);
+
+  // One conservative Laplacian pass: remove local hand jitter without
+  // noticeably changing the authored route or either endpoint.
+  const nextPoints=cloneData(s.points);
+  let moved=0;
+  for(let i=1;i<s.points.length-1;i++){
+    const prev=new THREE.Vector3(...originalPoints[i-1]);
+    const curr=new THREE.Vector3(...originalPoints[i]);
+    const next=new THREE.Vector3(...originalPoints[i+1]);
+    const midpoint=prev.clone().add(next).multiplyScalar(.5);
+    const delta=midpoint.sub(curr).multiplyScalar(.18);
+
+    const localScale=Math.min(
+      prev.distanceTo(curr),
+      curr.distanceTo(next)
+    );
+    const maxShift=Math.min(.12,Math.max(.025,localScale*.10));
+    if(delta.length()>maxShift)delta.setLength(maxShift);
+    delta.y*=.82;
+
+    const p=curr.add(delta);
+    p.x=clamp(p.x,-5.2,5.2);
+    p.y=clamp(p.y,.35,3.7);
+    p.z=clamp(p.z,-5.2,7.8);
+    nextPoints[i]=p.toArray();
+    moved=Math.max(moved,delta.length());
+  }
+  s.points=nextPoints;
+
+  // Smooth local timing a little as well. Preserve overall shot duration so
+  // stabilization does not unexpectedly make the shot faster or slower.
+  const effective=originalSegments.map(effectiveDuration);
+  const softened=effective.map((v,i)=>{
+    if(i===0 || i===effective.length-1)return v;
+    const neighbor=(effective[i-1]+v+effective[i+1])/3;
+    return mix(v,neighbor,.24);
+  });
+  const sumSoft=softened.reduce((a,b)=>a+b,0)||1;
+  const durationScale=totalBefore/sumSoft;
+
+  s.segments.forEach((seg,i)=>{
+    const targetEffective=softened[i]*durationScale;
+    seg.duration=clamp(targetEffective*Math.max(.05,seg.speed),.07,8);
+
+    // Interior joins should flow through instead of visibly braking/restarting.
+    if(i>0)seg.accelIn=mix(seg.accelIn,Math.min(seg.accelIn,1.25),.35);
+    if(i<s.segments.length-1)seg.brakeOut=mix(seg.brakeOut,Math.min(seg.brakeOut,1.25),.35);
+  });
+
+  s._lastStabilizeBackup={points:originalPoints,segments:originalSegments};
+  relabelPoints(s);
+  const totalAfter=shotDuration(s);
+  playhead=totalAfter*progress;
+  selectedPoint=clamp(selectedPoint,0,s.points.length-1);
+  selectedSegment=clamp(selectedSegment,0,s.segments.length-1);
+  refreshUI();
+  applyCameraState(cameraStateAt(s,playhead));
+  refreshTimeline();
+
+  ui.stabilizePath?.classList.remove('done');
+  requestAnimationFrame(()=>ui.stabilizePath?.classList.add('done'));
+  setTimeout(()=>ui.stabilizePath?.classList.remove('done'),520);
+  setStatus('STABILIZED · LIGHT '+Math.round(moved*100)+'cm');
+}
+ui.stabilizePath?.addEventListener('click',stabilizeCurrentPath);
 
 ui.origin.addEventListener('click',()=>{stopPlayback();playhead=0;applyCameraState(cameraStateAt(shot(),0));refreshTimeline();setStatus('SHOT START')});
 ui.reset.addEventListener('click',()=>{stopPlayback();shots=cloneData(defaultShots);shots.forEach(relabelPoints);currentShotIndex=0;selectedPoint=0;selectedSegment=0;playhead=0;setTargetMarker();refreshUI();applyCameraState(cameraStateAt(shot(),0));resetMotionGesture();if(ui.heightHint)ui.heightHint.textContent='height auto';setStatus('DEMO RESET')});
