@@ -664,7 +664,9 @@ const motionState={
   rot:0,
   bendX:0,
   bendY:0,
-  rhythm:[.17,.50,.83]
+  rhythm:[.17,.50,.83],
+  trace:[],
+  gestureTempo:1
 };
 let motionDrag=null;
 
@@ -736,12 +738,64 @@ function updateMotionUI(){
 function resetMotionGesture(){
   motionState.dx=0;motionState.dy=0;motionState.scale=1;motionState.rot=0;
   motionState.bendX=0;motionState.bendY=0;motionState.rhythm=[.17,.50,.83];
+  motionState.trace=[];motionState.gestureTempo=1;
   quickAxes.forEach(([,el,out])=>{
     if(el)el.value='0';
     if(out)out.textContent='0.0';
   });
   updateMotionUI();
 }
+function inferGestureFromTrace(){
+  const tr=motionState.trace;
+  if(!tr || tr.length<3)return;
+  const g=stageMetrics();
+  const start=tr[0],end=tr[tr.length-1];
+  let total=0;
+  const cum=[0];
+  for(let i=1;i<tr.length;i++){
+    total+=Math.hypot(tr[i].x-tr[i-1].x,tr[i].y-tr[i-1].y);
+    cum.push(total);
+  }
+  if(total<8)return;
+
+  // Geometry: fit one clean quadratic bow to the user's hand-drawn drag.
+  // This preserves expressive curvature while suppressing pointer jitter.
+  let mx=0,my=0,count=0;
+  for(let i=0;i<tr.length;i++){
+    const f=cum[i]/total;
+    if(f>=.38 && f<=.62){mx+=tr[i].x;my+=tr[i].y;count++}
+  }
+  if(!count){mx=(start.x+end.x)/2;my=(start.y+end.y)/2;count=1}
+  mx/=count;my/=count;
+  const controlX=2*mx-.5*(start.x+end.x);
+  const controlY=2*my-.5*(start.y+end.y);
+  motionState.bendX=clamp(controlX-(start.x+end.x)/2,-g.w*.28,g.w*.28);
+  motionState.bendY=clamp(controlY-(start.y+end.y)/2,-g.h*.28,g.h*.28);
+
+  // Rhythm: equal-time ghost frames land where the pointer actually was at
+  // 25/50/75% of gesture time. Slow hand movement => close frames; fast => wide.
+  const t0=start.time,t1=end.time,elapsed=Math.max(1,t1-t0);
+  const qs=[.25,.50,.75];
+  const inferred=qs.map(q=>{
+    const target=t0+elapsed*q;
+    let i=1;
+    while(i<tr.length && tr[i].time<target)i++;
+    i=clamp(i,1,tr.length-1);
+    const a=tr[i-1],b=tr[i],span=Math.max(1,b.time-a.time);
+    const u=clamp((target-a.time)/span,0,1);
+    const d=cum[i-1]+Math.hypot(b.x-a.x,b.y-a.y)*u;
+    return clamp(d/total,.04,.96);
+  });
+  inferred[0]=clamp(inferred[0],.05,.78);
+  inferred[1]=clamp(inferred[1],inferred[0]+.06,.89);
+  inferred[2]=clamp(inferred[2],inferred[1]+.06,.95);
+  motionState.rhythm=inferred;
+
+  // The speed of the same drag also supplies a global tempo hint.
+  // A slow deliberate drag yields a slower cinematic move; a flick stays brisk.
+  motionState.gestureTempo=clamp(elapsed/850,.62,1.65);
+}
+
 function drawFrameOverlay(){
   if(!frameCtx || !ui.frameOverlay)return;
   const g=stageMetrics();
@@ -760,16 +814,24 @@ function drawFrameOverlay(){
     x:(p0.x+curve2D(1).x)/2+motionState.bendX,
     y:(p0.y+curve2D(1).y)/2+motionState.bendY
   },p2=curve2D(1);
+  if(motionState.trace.length>2){
+    frameCtx.beginPath();
+    motionState.trace.forEach((p,i)=>{if(!i)frameCtx.moveTo(p.x,p.y);else frameCtx.lineTo(p.x,p.y)});
+    frameCtx.strokeStyle='rgba(255,224,139,.22)';
+    frameCtx.lineWidth=1;
+    frameCtx.stroke();
+  }
+
   frameCtx.beginPath();
   frameCtx.moveTo(p0.x,p0.y);
   frameCtx.quadraticCurveTo(p1.x,p1.y,p2.x,p2.y);
-  frameCtx.strokeStyle='rgba(220,170,248,.55)';
-  frameCtx.lineWidth=1.4;
+  frameCtx.strokeStyle='rgba(220,170,248,.65)';
+  frameCtx.lineWidth=1.5;
   frameCtx.setLineDash([5,5]);
   frameCtx.stroke();
   frameCtx.setLineDash([]);
 
-  // Equal-time ticks make the rhythm editing legible.
+  // Equal-time ticks make the captured rhythm legible.
   motionState.rhythm.forEach((t,i)=>{
     const p=curve2D(t);
     frameCtx.fillStyle=i===1?'rgba(255,228,148,.95)':'rgba(233,202,249,.82)';
@@ -833,7 +895,7 @@ function compileMotionGesture(){
   }
   let pathLength=0;
   for(let i=1;i<preview.samples.length;i++)pathLength+=preview.samples[i].distanceTo(preview.samples[i-1]);
-  const totalTime=clamp(pathLength/Math.max(.35,worldSpeed),.8,8);
+  const totalTime=clamp((pathLength/Math.max(.35,worldSpeed))*motionState.gestureTempo,.8,8);
   const segmentTime=totalTime/4;
 
   // Ghost frames are equal-time samples. Their spatial spacing therefore *is*
@@ -897,7 +959,7 @@ ui.motionReset?.addEventListener('click',()=>{resetMotionGesture();setStatus('GE
 
 function beginMotionDrag(mode,e,index=-1){
   e.preventDefault();e.stopPropagation();
-  const g=stageMetrics();
+  const g=stageMetrics(),r=ui.stage.getBoundingClientRect();
   motionDrag={
     mode,index,startX:e.clientX,startY:e.clientY,
     dx:motionState.dx,dy:motionState.dy,scale:motionState.scale,rot:motionState.rot,
@@ -905,6 +967,16 @@ function beginMotionDrag(mode,e,index=-1){
     rhythm:[...motionState.rhythm],
     centerX:g.baseX+motionState.dx,centerY:g.baseY+motionState.dy
   };
+  if(mode==='frame'){
+    motionState.trace=[{
+      x:g.baseX+motionState.dx,
+      y:g.baseY+motionState.dy,
+      time:performance.now()
+    }];
+    motionState.bendX=0;motionState.bendY=0;
+    motionState.rhythm=[.17,.50,.83];
+    motionState.gestureTempo=1;
+  }
 }
 ui.nextFrame?.addEventListener('pointerdown',e=>{
   if(e.target===ui.frameResize||e.target===ui.frameRotate)return;
@@ -919,9 +991,16 @@ window.addEventListener('pointermove',e=>{
   if(!motionDrag)return;
   const d=motionDrag,dx=e.clientX-d.startX,dy=e.clientY-d.startY;
   if(d.mode==='frame'){
-    const g=stageMetrics();
+    const g=stageMetrics(),r=ui.stage.getBoundingClientRect();
     motionState.dx=clamp(d.dx+dx,-g.w*.36,g.w*.36);
     motionState.dy=clamp(d.dy+dy,-g.h*.30,g.h*.30);
+    const now=performance.now();
+    const x=g.baseX+motionState.dx,y=g.baseY+motionState.dy,last=motionState.trace[motionState.trace.length-1];
+    if(!last || now-last.time>12 || Math.hypot(x-last.x,y-last.y)>3){
+      motionState.trace.push({x,y,time:now});
+      if(motionState.trace.length>96)motionState.trace.shift();
+      inferGestureFromTrace();
+    }
   }else if(d.mode==='resize'){
     motionState.scale=clamp(d.scale+(dx-dy)*.0035,.58,1.7);
   }else if(d.mode==='bend'){
@@ -939,9 +1018,13 @@ window.addEventListener('pointermove',e=>{
     motionState.rhythm[d.index]=clamp(t,lo,hi);
   }
   updateMotionUI();
-  setStatus(d.mode==='rhythm'?'RHYTHM':'MOTION PREVIEW');
+  setStatus(d.mode==='frame'?'PATH + RHYTHM':(d.mode==='rhythm'?'RHYTHM':'MOTION PREVIEW'));
 });
-window.addEventListener('pointerup',()=>{motionDrag=null});
+window.addEventListener('pointerup',()=>{
+    if(motionDrag?.mode==='frame')inferGestureFromTrace();
+    motionDrag=null;
+    updateMotionUI();
+  });
 
 ui.timeline.addEventListener('input',e=>{stopPlayback();controls.enabled=true;playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
 
