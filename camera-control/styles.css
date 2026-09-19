@@ -123,6 +123,12 @@ body{display:flex;justify-content:center}
   border-color:#c9addb !important;
   transform:translateY(-1px)
 }
+.stabilize-btn.active{
+  background:#302a34 !important;
+  border-color:#302a34 !important;
+  color:#fff !important;
+  box-shadow:0 4px 14px rgba(48,42,52,.16)
+}
 .time-wrap{display:grid;grid-template-columns:36px minmax(80px,1fr) 36px;align-items:center;gap:6px;color:#8d8293;font:8px ui-monospace,SFMono-Regular,Menlo,monospace}
 .time-wrap span:last-child{text-align:right}
 #timeline{width:100%}
