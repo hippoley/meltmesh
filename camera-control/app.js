@@ -1320,6 +1320,9 @@ const pilotState={
   startMs:0,
   lastSampleMs:0,
   moved:false,
+  basisForward:new THREE.Vector3(0,0,-1),
+  basisRight:new THREE.Vector3(1,0,0),
+  intent:'free',
   samples:[]
 };
 
@@ -1723,6 +1726,16 @@ function beginPilotGesture(e){
   pilotState.startMs=performance.now();
   pilotState.lastSampleMs=pilotState.startMs;
   pilotState.moved=false;
+  pilotState.intent='free';
+
+  const startTarget=targetFor(shot());
+  pilotState.basisForward.copy(startTarget).sub(camera.position);
+  if(pilotState.basisForward.lengthSq()<.0001)pilotState.basisForward.set(0,0,-1);
+  else pilotState.basisForward.normalize();
+  pilotState.basisRight.crossVectors(pilotState.basisForward,new THREE.Vector3(0,1,0));
+  if(pilotState.basisRight.lengthSq()<.0001)pilotState.basisRight.set(1,0,0);
+  else pilotState.basisRight.normalize();
+
   pilotState.samples=[{
     position:camera.position.clone(),
     time:0,
@@ -1756,25 +1769,39 @@ function updatePilot(dt,nowMs){
   if(drive<=0)return;
 
   const target=targetFor(shot());
-  const forward=target.clone().sub(camera.position);
-  if(forward.lengthSq()<.0001)forward.set(0,0,-1);else forward.normalize();
-
   const worldUp=new THREE.Vector3(0,1,0);
-  let right=new THREE.Vector3().crossVectors(forward,worldUp);
-  if(right.lengthSq()<.0001)right.set(1,0,0);else right.normalize();
+  const forward=pilotState.basisForward;
+  const right=pilotState.basisRight;
 
-  // Joystick semantics:
-  // left/right -> orbit/strafe around the target
-  // up/down    -> rise/fall
-  // distance from the anchor -> speed
-  // a forward component is always present, making a continuous "camera drive".
-  const direction=forward.clone().multiplyScalar(.72)
-    .addScaledVector(right,nx*1.35)
-    .addScaledVector(worldUp,-ny*.95);
+  const ax=Math.abs(nx),ay=Math.abs(ny);
+  const verticalIntent=smoothstep01(clamp((ay-ax*1.10)/.34,0,1));
+  const horizontalIntent=smoothstep01(clamp((ax-ay*1.10)/.34,0,1));
+  const axisIntent=Math.max(verticalIntent,horizontalIntent);
+  const freeIntent=1-axisIntent;
+
+  // Direct-manipulation semantics:
+  // near-vertical stroke   -> true crane, no hidden forward motion
+  // near-horizontal stroke -> true truck, no hidden orbit
+  // diagonal/free stroke   -> camera drive, preserving depth movement
+  // The blend is continuous, so crossing between these intentions never snaps.
+  const direction=forward.clone().multiplyScalar(.72*freeIntent)
+    .addScaledVector(right,nx*(1.12+.23*freeIntent))
+    .addScaledVector(worldUp,-ny*(1.08-.13*freeIntent));
   if(direction.lengthSq()<.0001)return;
   direction.normalize();
 
-  const speed=.35 + drive*2.35;
+  let intent='free';
+  if(verticalIntent>.72)intent='crane';
+  else if(horizontalIntent>.72)intent='truck';
+  if(intent!==pilotState.intent){
+    pilotState.intent=intent;
+    if(intent==='crane')setStatus(ny<0?'CRANE · UP':'CRANE · DOWN');
+    else if(intent==='truck')setStatus(nx<0?'TRUCK · LEFT':'TRUCK · RIGHT');
+    else setStatus('STEER · DEPTH + DIRECTION');
+  }
+
+  const axisSpeedScale=axisIntent>.7?.82:1;
+  const speed=(.35 + drive*2.35)*axisSpeedScale;
   const next=camera.position.clone().addScaledVector(direction,speed*dt);
   next.x=clamp(next.x,-5.2,5.2);
   next.y=clamp(next.y,.35,3.7);
@@ -1898,6 +1925,7 @@ function endPilotGesture(e){
 
   pilotState.pointerId=null;
   pilotState.captureEl=null;
+  pilotState.intent='free';
   pilotState.samples=[];
   drawFrameOverlay();
 }
