@@ -331,6 +331,13 @@ let sequenceIndex = 0;
 let lastTs = performance.now();
 let frameDt = 1/60;
 let cinematicOrientationPrimed = false;
+const perceptualLookState={
+  position:new THREE.Vector3(),
+  velocity:new THREE.Vector3(),
+  acceleration:new THREE.Vector3(),
+  ready:false
+};
+const perceptualRollState={value:0,velocity:0,acceleration:0,ready:false};
 let drag = null;
 let pointerDown = null;
 
@@ -477,6 +484,60 @@ function posOnSegment(s,i,t){
 
 const silkyCurveCache=new WeakMap();
 const silkyMotionCache=new WeakMap();
+
+function thirdDerivativeRegularize(values,lambda=36,iterations=42,pinEnds=true){
+  const n=values.length;
+  if(n<5)return values.slice();
+
+  const weights=new Array(n).fill(1);
+  if(pinEnds){
+    weights[0]=weights[n-1]=320;
+    weights[1]=weights[n-2]=10;
+  }
+
+  const applyA=x=>{
+    const y=x.map((v,i)=>v*weights[i]);
+    for(let i=0;i<n-3;i++){
+      const d=-x[i]+3*x[i+1]-3*x[i+2]+x[i+3];
+      y[i]+=lambda*(-d);
+      y[i+1]+=lambda*(3*d);
+      y[i+2]+=lambda*(-3*d);
+      y[i+3]+=lambda*d;
+    }
+    return y;
+  };
+  const dot=(a,b)=>{
+    let sum=0;
+    for(let i=0;i<n;i++)sum+=a[i]*b[i];
+    return sum;
+  };
+
+  const rhs=values.map((v,i)=>v*weights[i]);
+  let x=values.slice();
+  let Ax=applyA(x);
+  let r=rhs.map((v,i)=>v-Ax[i]);
+  let p=r.slice();
+  let rr=dot(r,r);
+
+  for(let k=0;k<iterations && rr>1e-12;k++){
+    const Ap=applyA(p);
+    const denom=Math.max(1e-12,dot(p,Ap));
+    const alpha=rr/denom;
+    for(let i=0;i<n;i++)x[i]+=alpha*p[i];
+    for(let i=0;i<n;i++)r[i]-=alpha*Ap[i];
+    const nextRR=dot(r,r);
+    if(nextRR<1e-12)break;
+    const beta=nextRR/Math.max(1e-12,rr);
+    for(let i=0;i<n;i++)p[i]=r[i]+beta*p[i];
+    rr=nextRR;
+  }
+
+  if(pinEnds){
+    x[0]=values[0];
+    x[n-1]=values[n-1];
+  }
+  return x;
+}
 function clearSilky(s){
   if(!s)return;
   s.stabilized=false;
@@ -490,10 +551,36 @@ function clearSilky(s){
 function silkyCurveFor(s){
   let curve=silkyCurveCache.get(s);
   if(curve)return curve;
-  const pts=s.points.map(p=>new THREE.Vector3(...p));
-  curve=new THREE.CatmullRomCurve3(pts,false,'centripetal',.5);
-  curve.arcLengthDivisions=Math.max(180,pts.length*24);
-  curve.updateArcLengths();
+
+  const authored=s.points.map(p=>new THREE.Vector3(...p));
+  const source=new THREE.CatmullRomCurve3(authored,false,'centripetal',.5);
+  source.arcLengthDivisions=Math.max(180,authored.length*24);
+  source.updateArcLengths();
+
+  if(authored.length<=2){
+    curve=source;
+  }else{
+    const count=clamp(authored.length*16,48,112);
+    const raw=[];
+    for(let i=0;i<=count;i++)raw.push(source.getPointAt(i/count));
+
+    const xs=thirdDerivativeRegularize(raw.map(p=>p.x),52,46,true);
+    const ys=thirdDerivativeRegularize(raw.map(p=>p.y),44,46,true);
+    const zs=thirdDerivativeRegularize(raw.map(p=>p.z),52,46,true);
+
+    const smooth=raw.map((p,i)=>{
+      const q=new THREE.Vector3(xs[i],ys[i],zs[i]);
+      const delta=q.clone().sub(p);
+      const maxShift=i===0||i===raw.length-1?0:.085;
+      if(delta.length()>maxShift)delta.setLength(maxShift);
+      return p.clone().add(delta);
+    });
+
+    curve=new THREE.CatmullRomCurve3(smooth,false,'centripetal',.5);
+    curve.arcLengthDivisions=Math.max(260,smooth.length*5);
+    curve.updateArcLengths();
+  }
+
   silkyCurveCache.set(s,curve);
   return curve;
 }
@@ -531,20 +618,13 @@ function silkyMotionFor(s){
   speedFactors[0]=speedFactors[1];
   speedFactors[count]=speedFactors[count-1];
 
-  // Low-pass the speed field twice so entering/exiting a bend never feels stepped.
-  for(let pass=0;pass<2;pass++){
-    const next=speedFactors.slice();
-    for(let i=2;i<count-1;i++){
-      next[i]=(
-        speedFactors[i-2]+
-        speedFactors[i-1]*2+
-        speedFactors[i]*3+
-        speedFactors[i+1]*2+
-        speedFactors[i+2]
-      )/9;
-    }
-    speedFactors=next;
-  }
+  // Minimize the third finite difference of the speed state.
+  // This directly suppresses jerk-like changes instead of merely blurring them.
+  const jerkSmoothed=thirdDerivativeRegularize(speedFactors,68,44,false);
+  speedFactors=speedFactors.map((v,i)=>{
+    const blended=mix(v,jerkSmoothed[i],.86);
+    return clamp(blended,.50,1.02);
+  });
 
   // Build a normalized time-cost table over equal arc-length samples.
   const time=[0];
@@ -614,25 +694,90 @@ function samplePath(s=shot(),count=180){
   for(let i=0;i<=count;i++) arr.push(cameraStateAt(s,total*i/count));
   return arr;
 }
+function resetPerceptualState(){
+  perceptualLookState.ready=false;
+  perceptualRollState.ready=false;
+  cinematicOrientationPrimed=false;
+}
+function clampVectorLength(v,maxLen){
+  if(v.lengthSq()>maxLen*maxLen)v.setLength(maxLen);
+  return v;
+}
+function stepThirdOrderVector(slot,desired,dt,omega,jerkLimit,accelLimit,speedLimit){
+  if(!slot.ready){
+    slot.position.copy(desired);
+    slot.velocity.set(0,0,0);
+    slot.acceleration.set(0,0,0);
+    slot.ready=true;
+    return slot.position;
+  }
+
+  const steps=Math.max(1,Math.ceil(dt/.010));
+  const h=dt/steps;
+  for(let step=0;step<steps;step++){
+    const error=desired.clone().sub(slot.position);
+    const jerk=error.multiplyScalar(omega*omega*omega)
+      .addScaledVector(slot.velocity,-3*omega*omega)
+      .addScaledVector(slot.acceleration,-3*omega);
+    clampVectorLength(jerk,jerkLimit);
+
+    slot.acceleration.addScaledVector(jerk,h);
+    clampVectorLength(slot.acceleration,accelLimit);
+    slot.velocity.addScaledVector(slot.acceleration,h);
+    clampVectorLength(slot.velocity,speedLimit);
+    slot.position.addScaledVector(slot.velocity,h);
+  }
+  return slot.position;
+}
+function stepThirdOrderScalar(slot,desired,dt,omega,jerkLimit,accelLimit,speedLimit){
+  if(!slot.ready){
+    slot.value=desired;slot.velocity=0;slot.acceleration=0;slot.ready=true;
+    return slot.value;
+  }
+  const steps=Math.max(1,Math.ceil(dt/.010));
+  const h=dt/steps;
+  for(let step=0;step<steps;step++){
+    let jerk=(desired-slot.value)*omega*omega*omega
+      -3*omega*omega*slot.velocity
+      -3*omega*slot.acceleration;
+    jerk=clamp(jerk,-jerkLimit,jerkLimit);
+    slot.acceleration=clamp(slot.acceleration+jerk*h,-accelLimit,accelLimit);
+    slot.velocity=clamp(slot.velocity+slot.acceleration*h,-speedLimit,speedLimit);
+    slot.value+=slot.velocity*h;
+  }
+  return slot.value;
+}
 function applyCameraState(state){
   camera.position.copy(state.position);
-  controls.target.copy(state.target);
 
   if(playing && !navigationMode){
-    const lookMatrix=new THREE.Matrix4().lookAt(camera.position,state.target,camera.up);
+    // Perceptual state smoothing: a triple-pole critically damped system.
+    // State = [target position, velocity, acceleration], input = bounded jerk.
+    const smoothTarget=stepThirdOrderVector(
+      perceptualLookState,state.target,Math.max(1/240,frameDt),
+      10.5,150,28,14
+    );
+    const smoothRoll=stepThirdOrderScalar(
+      perceptualRollState,state.roll||0,Math.max(1/240,frameDt),
+      12.5,5.0,1.0,.55
+    );
+
+    controls.target.copy(smoothTarget);
+    const lookMatrix=new THREE.Matrix4().lookAt(camera.position,smoothTarget,camera.up);
     const desired=new THREE.Quaternion().setFromRotationMatrix(lookMatrix);
     const alpha=cinematicOrientationPrimed
-      ? 1-Math.exp(-Math.max(1/240,frameDt)*18)
+      ? 1-Math.exp(-Math.max(1/240,frameDt)*24)
       : 1;
     camera.quaternion.slerp(desired,alpha);
     cinematicOrientationPrimed=true;
+    if(Math.abs(smoothRoll)>.00001)camera.rotateZ(smoothRoll);
   }else{
+    controls.target.copy(state.target);
     camera.lookAt(state.target);
     controls.update();
-    cinematicOrientationPrimed=false;
+    resetPerceptualState();
+    if(state.roll)camera.rotateZ(state.roll);
   }
-
-  if(state.roll)camera.rotateZ(state.roll);
 }
 function updateCinematicOptics(s=shot(),time=playhead){
   const hasTransfers=Array.isArray(s.focusKeys)&&s.focusKeys.length>0;
@@ -668,6 +813,7 @@ function setStatus(text){ ui.status.textContent=text; }
 
 function stopPlayback(){
   playing=false;
+  resetPerceptualState();
   ui.play.textContent='▶ Play';
   const q=$('quickPlay'); if(q) q.textContent='▶ Preview shot';
   syncNavigationMode();
@@ -939,7 +1085,7 @@ function stabilizeCurrentPath(){
     requestAnimationFrame(()=>ui.stabilizePath?.classList.add('done'));
     setTimeout(()=>ui.stabilizePath?.classList.remove('done'),520);
   }
-  setStatus('STABILIZED · CINEMATIC FLOW');
+  setStatus('STABILIZED · JERK-LIMITED FLOW');
 }
 ui.stabilizePath?.addEventListener('click',stabilizeCurrentPath);
 
@@ -950,7 +1096,7 @@ ui.play.addEventListener('click',()=>{
   playbackMode='shot';
   if(playhead>=shotDuration())playhead=0;
   playing=!playing;
-  cinematicOrientationPrimed=false;
+  resetPerceptualState();
   syncNavigationMode();
   ui.play.textContent=playing?'⏸ Pause':'▶ Play';
   syncPlayLabels();
