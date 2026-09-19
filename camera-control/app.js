@@ -59,8 +59,27 @@ const ui = {
   ribbonHandle: $('ribbonHandle'),
   ghostFrames: [$('ghost1'),$('ghost2'),$('ghost3')],
   motionApply: $('motionApply'),
-  motionReset: $('motionReset')
+  motionReset: $('motionReset'),
+  advancedDrawer: $('advancedDrawer'),
+  advancedToggle: $('advancedToggle'),
+  advancedClose: $('advancedClose')
 };
+
+function setAdvancedOpen(open){
+  if(!ui.advancedDrawer)return;
+  ui.advancedDrawer.classList.toggle('open',open);
+  ui.advancedDrawer.setAttribute('aria-hidden',open?'false':'true');
+  ui.advancedToggle?.setAttribute('aria-expanded',open?'true':'false');
+}
+ui.advancedToggle?.addEventListener('click',()=>{
+  setAdvancedOpen(!ui.advancedDrawer?.classList.contains('open'));
+});
+ui.advancedClose?.addEventListener('click',()=>setAdvancedOpen(false));
+window.addEventListener('keydown',e=>{
+  if(e.key==='Escape' && ui.advancedDrawer?.classList.contains('open')){
+    setAdvancedOpen(false);
+  }
+});
 
 const renderer = new THREE.WebGLRenderer({
   canvas: ui.canvas,
