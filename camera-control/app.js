@@ -335,12 +335,16 @@ const perceptualPositionState={
   position:new THREE.Vector3(),
   velocity:new THREE.Vector3(),
   acceleration:new THREE.Vector3(),
+  jerk:new THREE.Vector3(),
+  snap:new THREE.Vector3(),
   ready:false
 };
 const perceptualRotationState={
   quaternion:new THREE.Quaternion(),
   velocity:new THREE.Vector3(),
   acceleration:new THREE.Vector3(),
+  jerk:new THREE.Vector3(),
+  snap:new THREE.Vector3(),
   ready:false
 };
 let drag = null;
@@ -369,7 +373,7 @@ function targetFor(s=shot(),time=playhead){
     const next=rawTargetPosition(key.targetId,s);
     if(time<start)return current;
     if(time<keyTime){
-      const u=smootheststep01((time-start)/Math.max(.001,keyTime-start));
+      const u=fifthOrderStep01((time-start)/Math.max(.001,keyTime-start));
       return current.clone().lerp(next,u);
     }
     currentId=key.targetId;
@@ -490,24 +494,26 @@ function posOnSegment(s,i,t){
 const silkyCurveCache=new WeakMap();
 const silkyMotionCache=new WeakMap();
 
-function thirdDerivativeRegularize(values,lambda=36,iterations=42,pinEnds=true){
+function fifthDerivativeRegularize(values,lambda=18,iterations=52,pinEnds=true){
   const n=values.length;
-  if(n<5)return values.slice();
+  if(n<7)return values.slice();
 
+  // Fifth finite difference coefficients. Penalizing D5^T D5 suppresses
+  // crackle while preserving the authored low-frequency camera intent.
+  const c=[-1,5,-10,10,-5,1];
   const weights=new Array(n).fill(1);
   if(pinEnds){
-    weights[0]=weights[n-1]=320;
-    weights[1]=weights[n-2]=10;
+    weights[0]=weights[n-1]=520;
+    weights[1]=weights[n-2]=28;
+    weights[2]=weights[n-3]=4;
   }
 
   const applyA=x=>{
     const y=x.map((v,i)=>v*weights[i]);
-    for(let i=0;i<n-3;i++){
-      const d=-x[i]+3*x[i+1]-3*x[i+2]+x[i+3];
-      y[i]+=lambda*(-d);
-      y[i+1]+=lambda*(3*d);
-      y[i+2]+=lambda*(-3*d);
-      y[i+3]+=lambda*d;
+    for(let i=0;i<=n-c.length;i++){
+      let d=0;
+      for(let k=0;k<c.length;k++)d+=c[k]*x[i+k];
+      for(let k=0;k<c.length;k++)y[i+k]+=lambda*c[k]*d;
     }
     return y;
   };
@@ -524,15 +530,15 @@ function thirdDerivativeRegularize(values,lambda=36,iterations=42,pinEnds=true){
   let p=r.slice();
   let rr=dot(r,r);
 
-  for(let k=0;k<iterations && rr>1e-12;k++){
+  for(let k=0;k<iterations && rr>1e-13;k++){
     const Ap=applyA(p);
-    const denom=Math.max(1e-12,dot(p,Ap));
+    const denom=Math.max(1e-13,dot(p,Ap));
     const alpha=rr/denom;
     for(let i=0;i<n;i++)x[i]+=alpha*p[i];
     for(let i=0;i<n;i++)r[i]-=alpha*Ap[i];
     const nextRR=dot(r,r);
-    if(nextRR<1e-12)break;
-    const beta=nextRR/Math.max(1e-12,rr);
+    if(nextRR<1e-13)break;
+    const beta=nextRR/Math.max(1e-13,rr);
     for(let i=0;i<n;i++)p[i]=r[i]+beta*p[i];
     rr=nextRR;
   }
@@ -569,9 +575,9 @@ function silkyCurveFor(s){
     const raw=[];
     for(let i=0;i<=count;i++)raw.push(source.getPointAt(i/count));
 
-    const xs=thirdDerivativeRegularize(raw.map(p=>p.x),52,46,true);
-    const ys=thirdDerivativeRegularize(raw.map(p=>p.y),44,46,true);
-    const zs=thirdDerivativeRegularize(raw.map(p=>p.z),52,46,true);
+    const xs=fifthDerivativeRegularize(raw.map(p=>p.x),16,56,true);
+    const ys=fifthDerivativeRegularize(raw.map(p=>p.y),13,56,true);
+    const zs=fifthDerivativeRegularize(raw.map(p=>p.z),16,56,true);
 
     const smooth=raw.map((p,i)=>{
       const q=new THREE.Vector3(xs[i],ys[i],zs[i]);
@@ -623,11 +629,11 @@ function silkyMotionFor(s){
   speedFactors[0]=speedFactors[1];
   speedFactors[count]=speedFactors[count-1];
 
-  // Minimize the third finite difference of the speed state.
-  // This directly suppresses jerk-like changes instead of merely blurring them.
-  const jerkSmoothed=thirdDerivativeRegularize(speedFactors,68,44,false);
+  // Minimize fifth finite difference of the speed state. This removes the
+  // tiny "acceleration texture" that is still perceptible after jerk smoothing.
+  const fifthSmoothed=fifthDerivativeRegularize(speedFactors,24,58,false);
   speedFactors=speedFactors.map((v,i)=>{
-    const blended=mix(v,jerkSmoothed[i],.86);
+    const blended=mix(v,fifthSmoothed[i],.90);
     return clamp(blended,.50,1.02);
   });
 
@@ -708,25 +714,38 @@ function clampVectorLength(v,maxLen){
   if(v.lengthSq()>maxLen*maxLen)v.setLength(maxLen);
   return v;
 }
-function stepThirdOrderVector(slot,desired,dt,omega,jerkLimit,accelLimit,speedLimit){
+function stepFifthOrderVector(
+  slot,desired,dt,omega,
+  crackleLimit,snapLimit,jerkLimit,accelLimit,speedLimit
+){
   if(!slot.ready){
     slot.position.copy(desired);
     slot.velocity.set(0,0,0);
     slot.acceleration.set(0,0,0);
+    slot.jerk.set(0,0,0);
+    slot.snap.set(0,0,0);
     slot.ready=true;
     return slot.position;
   }
 
-  const steps=Math.max(1,Math.ceil(dt/.008));
+  const steps=Math.max(1,Math.ceil(dt/.006));
   const h=dt/steps;
+  const w2=omega*omega,w3=w2*omega,w4=w3*omega,w5=w4*omega;
+
   for(let step=0;step<steps;step++){
     const error=desired.clone().sub(slot.position);
-    const jerk=error.multiplyScalar(omega*omega*omega)
-      .addScaledVector(slot.velocity,-3*omega*omega)
-      .addScaledVector(slot.acceleration,-3*omega);
-    clampVectorLength(jerk,jerkLimit);
+    const crackle=error.multiplyScalar(w5)
+      .addScaledVector(slot.velocity,-5*w4)
+      .addScaledVector(slot.acceleration,-10*w3)
+      .addScaledVector(slot.jerk,-10*w2)
+      .addScaledVector(slot.snap,-5*omega);
+    clampVectorLength(crackle,crackleLimit);
 
-    slot.acceleration.addScaledVector(jerk,h);
+    slot.snap.addScaledVector(crackle,h);
+    clampVectorLength(slot.snap,snapLimit);
+    slot.jerk.addScaledVector(slot.snap,h);
+    clampVectorLength(slot.jerk,jerkLimit);
+    slot.acceleration.addScaledVector(slot.jerk,h);
     clampVectorLength(slot.acceleration,accelLimit);
     slot.velocity.addScaledVector(slot.acceleration,h);
     clampVectorLength(slot.velocity,speedLimit);
@@ -744,25 +763,38 @@ function quaternionErrorVector(current,desired){
   if(angle<1e-7 || sinHalf<1e-7)return new THREE.Vector3();
   return new THREE.Vector3(q.x/sinHalf,q.y/sinHalf,q.z/sinHalf).multiplyScalar(angle);
 }
-function stepThirdOrderQuaternion(slot,desired,dt,omega,jerkLimit,accelLimit,speedLimit){
+function stepFifthOrderQuaternion(
+  slot,desired,dt,omega,
+  crackleLimit,snapLimit,jerkLimit,accelLimit,speedLimit
+){
   if(!slot.ready){
     slot.quaternion.copy(desired);
     slot.velocity.set(0,0,0);
     slot.acceleration.set(0,0,0);
+    slot.jerk.set(0,0,0);
+    slot.snap.set(0,0,0);
     slot.ready=true;
     return slot.quaternion;
   }
 
-  const steps=Math.max(1,Math.ceil(dt/.008));
+  const steps=Math.max(1,Math.ceil(dt/.006));
   const h=dt/steps;
+  const w2=omega*omega,w3=w2*omega,w4=w3*omega,w5=w4*omega;
+
   for(let step=0;step<steps;step++){
     const error=quaternionErrorVector(slot.quaternion,desired);
-    const jerk=error.multiplyScalar(omega*omega*omega)
-      .addScaledVector(slot.velocity,-3*omega*omega)
-      .addScaledVector(slot.acceleration,-3*omega);
-    clampVectorLength(jerk,jerkLimit);
+    const crackle=error.multiplyScalar(w5)
+      .addScaledVector(slot.velocity,-5*w4)
+      .addScaledVector(slot.acceleration,-10*w3)
+      .addScaledVector(slot.jerk,-10*w2)
+      .addScaledVector(slot.snap,-5*omega);
+    clampVectorLength(crackle,crackleLimit);
 
-    slot.acceleration.addScaledVector(jerk,h);
+    slot.snap.addScaledVector(crackle,h);
+    clampVectorLength(slot.snap,snapLimit);
+    slot.jerk.addScaledVector(slot.snap,h);
+    clampVectorLength(slot.jerk,jerkLimit);
+    slot.acceleration.addScaledVector(slot.jerk,h);
     clampVectorLength(slot.acceleration,accelLimit);
     slot.velocity.addScaledVector(slot.acceleration,h);
     clampVectorLength(slot.velocity,speedLimit);
@@ -789,12 +821,16 @@ function perceptualMotionBudget(s=shot(),time=playhead){
   const focus=subjectTransferActivity(s,time);
   const softness=clamp(Math.max(turn,focus*.88),0,1);
   return {
-    positionOmega:mix(18,12.5,softness),
-    positionJerk:mix(260,145,softness),
-    positionAccel:mix(28,18,softness),
-    rotationOmega:mix(16,10.5,softness),
-    rotationJerk:mix(18,8.5,softness),
-    rotationAccel:mix(5.2,3.0,softness)
+    positionOmega:mix(11.8,8.2,softness),
+    positionCrackle:mix(12000,5600,softness),
+    positionSnap:mix(760,390,softness),
+    positionJerk:mix(150,82,softness),
+    positionAccel:mix(26,16,softness),
+    rotationOmega:mix(10.2,7.1,softness),
+    rotationCrackle:mix(1200,560,softness),
+    rotationSnap:mix(155,78,softness),
+    rotationJerk:mix(28,15,softness),
+    rotationAccel:mix(5.4,3.1,softness)
   };
 }
 function desiredCameraQuaternion(position,target,roll=0){
@@ -821,17 +857,19 @@ function applyCameraState(state){
       : state;
 
     let bodyPosition=s.stabilized
-      ? stepThirdOrderVector(
+      ? stepFifthOrderVector(
           perceptualPositionState,predicted.position,dt,
-          budget.positionOmega,budget.positionJerk,budget.positionAccel,8.5
+          budget.positionOmega,
+          budget.positionCrackle,budget.positionSnap,budget.positionJerk,
+          budget.positionAccel,8.5
         ).clone()
       : state.position.clone();
 
-    // Land exactly on the authored endpoint without a last-frame snap.
-    // 7th-order smoothstep gives zero velocity/acceleration/jerk at both blend edges.
+    // Land exactly on the authored endpoint without a last-frame correction.
+    // Degree-11 transition nulls derivatives through order 5 at both edges.
     const remaining=total-playhead;
     if(s.stabilized && remaining<.24){
-      const settle=smootheststep01(clamp((.24-remaining)/.24,0,1));
+      const settle=fifthOrderStep01(clamp((.24-remaining)/.24,0,1));
       bodyPosition.lerp(state.position,settle);
     }
 
@@ -841,13 +879,15 @@ function applyCameraState(state){
     const desiredTarget=predicted.target||state.target;
     const desiredRoll=predicted.roll??state.roll??0;
     const desired=desiredCameraQuaternion(camera.position,desiredTarget,desiredRoll);
-    const smoothOrientation=stepThirdOrderQuaternion(
+    const smoothOrientation=stepFifthOrderQuaternion(
       perceptualRotationState,desired,dt,
-      budget.rotationOmega,budget.rotationJerk,budget.rotationAccel,2.6
+      budget.rotationOmega,
+      budget.rotationCrackle,budget.rotationSnap,budget.rotationJerk,
+      budget.rotationAccel,2.6
     ).clone();
 
     if(s.stabilized && remaining<.20){
-      const settle=smootheststep01(clamp((.20-remaining)/.20,0,1));
+      const settle=fifthOrderStep01(clamp((.20-remaining)/.20,0,1));
       const exact=desiredCameraQuaternion(camera.position,state.target,state.roll||0);
       smoothOrientation.slerp(exact,settle);
     }
@@ -912,7 +952,7 @@ function switchShot(index,snap=true){
   resetMotionGesture();
   if(ui.stabilizePath){
     ui.stabilizePath.classList.toggle('active',!!shot().stabilized);
-    ui.stabilizePath.textContent=shot().stabilized?'已防抖 · 三阶丝滑':'一键防抖防止卡顿';
+    ui.stabilizePath.textContent=shot().stabilized?'已防抖 · 五阶丝滑':'一键防抖防止卡顿';
   }
   setStatus('SHOT · '+shot().name.toUpperCase());
 }
@@ -1165,11 +1205,11 @@ function stabilizeCurrentPath(){
   if(ui.stabilizePath){
     ui.stabilizePath.classList.add('active');
     ui.stabilizePath.classList.remove('done');
-    ui.stabilizePath.textContent='已防抖 · 三阶丝滑';
+    ui.stabilizePath.textContent='已防抖 · 五阶丝滑';
     requestAnimationFrame(()=>ui.stabilizePath?.classList.add('done'));
     setTimeout(()=>ui.stabilizePath?.classList.remove('done'),520);
   }
-  setStatus('STABILIZED · JERK-LIMITED FLOW');
+  setStatus('STABILIZED · 5TH-ORDER FLOW');
 }
 ui.stabilizePath?.addEventListener('click',stabilizeCurrentPath);
 
@@ -1291,6 +1331,12 @@ function smootheststep01(t){
   t=clamp(t,0,1);
   const t2=t*t,t3=t2*t,t4=t3*t;
   return 35*t4-84*t4*t+70*t4*t2-20*t4*t3;
+}
+function fifthOrderStep01(t){
+  // Degree-11 transition: derivatives 1..5 are exactly zero at both ends.
+  t=clamp(t,0,1);
+  const t2=t*t,t3=t2*t,t6=t3*t3;
+  return t6*(462-1980*t+3465*t2-3080*t3+1386*t3*t-252*t3*t2);
 }
 function magnetic(value,targets,radius,strength=.72){
   let best=null,bestD=Infinity;
