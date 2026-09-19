@@ -111,6 +111,7 @@ let navigationMode = false;
 controls.enabled = false;
 function syncNavigationMode(){
   controls.enabled = navigationMode && !playing;
+  ui.stage?.classList.toggle('navigate',navigationMode);
   if(ui.homeView){
     ui.homeView.classList.toggle('active',navigationMode);
     ui.homeView.textContent = navigationMode ? 'Done' : 'Navigate';
@@ -608,7 +609,7 @@ ui.play.addEventListener('click',()=>{
   playbackMode='shot';
   if(playhead>=shotDuration())playhead=0;
   playing=!playing;
-  controls.enabled=!playing;
+  syncNavigationMode();
   ui.play.textContent=playing?'⏸ Pause':'▶ Play';
   syncPlayLabels();
   setStatus(playing?'PLAYING · '+shot().name.toUpperCase():'PAUSED');
@@ -782,7 +783,7 @@ function updateMotionUI(){
 
   const visible=endpointActive();
   ui.ribbonHandle.style.opacity=visible?'1':'0';
-  ui.ribbonHandle.style.pointerEvents=visible?'auto':'none';
+  ui.ribbonHandle.style.pointerEvents='none';
   ui.ghostFrames.forEach((el,i)=>{
     positionMotionElement(el,motionState.rhythm[i]);
     el.style.opacity=visible?'1':'0';
@@ -956,7 +957,7 @@ function nearestCurveT(clientX,clientY){
 }
 function compileMotionGesture(){
   if(!endpointActive()){
-    setStatus('DRAG NEXT FRAME');
+    setStatus('DRAW A MOVE');
     return;
   }
   stopPlayback();syncNavigationMode();
@@ -1038,7 +1039,7 @@ function compileMotionGesture(){
   resetMotionGesture();
   ui.motionUI?.classList.add('reanchor');
   setTimeout(()=>ui.motionUI?.classList.remove('reanchor'),220);
-  setStatus('CONTINUE · DRAG NEXT');
+  setStatus('CONTINUE · DRAW AGAIN');
 }
 
 function syncAxesToMotion(){
@@ -1065,7 +1066,7 @@ if(ui.motionApply)ui.motionApply.title='Apply and continue from this endpoint';
 function undoLastChainMove(){
   const s=shot(),history=s._chainHistory;
   if(!history?.length)return false;
-  stopPlayback();controls.enabled=true;
+  stopPlayback();syncNavigationMode();
   const step=history.pop();
   s.points.splice(Math.max(1,s.points.length-step.pointsAdded),step.pointsAdded);
   s.segments.splice(Math.max(0,s.segments.length-step.segmentsAdded),step.segmentsAdded);
@@ -1228,7 +1229,7 @@ function endMotionDrag(e){
 window.addEventListener('pointerup',endMotionDrag);
 window.addEventListener('pointercancel',endMotionDrag);
 
-ui.timeline.addEventListener('input',e=>{stopPlayback();controls.enabled=true;playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
+ui.timeline.addEventListener('input',e=>{stopPlayback();syncNavigationMode();playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
 
 ui.homeView.addEventListener('click',()=>{
   stopPlayback();
@@ -1350,7 +1351,7 @@ function hitPoint(canvas,mode,x,y){
 }
 function bindMini(canvas,mode){
   canvas.addEventListener('pointerdown',e=>{
-    stopPlayback();controls.enabled=true;
+    stopPlayback();syncNavigationMode();
     const [x,y]=localXY(e,canvas),hit=hitPoint(canvas,mode,x,y);
     if(hit>=0){
       selectedPoint=hit;selectedSegment=Math.min(hit,shot().segments.length-1);drag={mode,index:hit};canvas.setPointerCapture(e.pointerId);
@@ -1450,12 +1451,12 @@ function animate(ts){
         }else if(looping){
           currentShotIndex=0;sequenceIndex=0;selectedPoint=0;selectedSegment=0;playhead=0;setTargetMarker();refreshUI();
         }else{
-          playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play';syncPlayLabels();setStatus('SEQUENCE FINISHED');
+          playhead=total;playing=false;syncNavigationMode();ui.play.textContent='▶ Play';syncPlayLabels();setStatus('SEQUENCE FINISHED');
         }
       }else if(looping){
         playhead=0;
       }else{
-        playhead=total;playing=false;controls.enabled=true;ui.play.textContent='▶ Play';syncPlayLabels();setStatus('SHOT FINISHED');
+        playhead=total;playing=false;syncNavigationMode();ui.play.textContent='▶ Play';syncPlayLabels();setStatus('SHOT FINISHED');
       }
     }
     if(playing || playhead<=shotDuration()) applyCameraState(cameraStateAt(shot(),playhead));
