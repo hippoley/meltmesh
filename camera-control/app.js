@@ -51,7 +51,15 @@ const ui = {
   qZoom: $('qZoom'),
   qRotate: $('qRotate'),
   qReset: $('qReset'),
-  heightHint: $('heightHint')
+  heightHint: $('heightHint'),
+  motionUI: $('motionUI'),
+  nextFrame: $('nextFrame'),
+  frameResize: $('frameResize'),
+  frameRotate: $('frameRotate'),
+  ribbonHandle: $('ribbonHandle'),
+  ghostFrames: [$('ghost1'),$('ghost2'),$('ghost3')],
+  motionApply: $('motionApply'),
+  motionReset: $('motionReset')
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -400,7 +408,7 @@ function switchShot(index,snap=true){
   setTargetMarker();
   refreshUI();
   if(snap) applyCameraState(cameraStateAt(shot(),0));
-  resetQuickControls();
+  resetMotionGesture();
   setStatus('SHOT · '+shot().name.toUpperCase());
 }
 
@@ -565,7 +573,7 @@ ui.deletePoint.addEventListener('click',()=>{
 });
 
 ui.origin.addEventListener('click',()=>{stopPlayback();playhead=0;applyCameraState(cameraStateAt(shot(),0));refreshTimeline();setStatus('SHOT START')});
-ui.reset.addEventListener('click',()=>{stopPlayback();shots=cloneData(defaultShots);shots.forEach(relabelPoints);currentShotIndex=0;selectedPoint=0;selectedSegment=0;playhead=0;setTargetMarker();refreshUI();applyCameraState(cameraStateAt(shot(),0));resetQuickControls();if(ui.heightHint)ui.heightHint.textContent='height auto';setStatus('DEMO RESET')});
+ui.reset.addEventListener('click',()=>{stopPlayback();shots=cloneData(defaultShots);shots.forEach(relabelPoints);currentShotIndex=0;selectedPoint=0;selectedSegment=0;playhead=0;setTargetMarker();refreshUI();applyCameraState(cameraStateAt(shot(),0));resetMotionGesture();if(ui.heightHint)ui.heightHint.textContent='height auto';setStatus('DEMO RESET')});
 ui.loop.addEventListener('click',()=>{looping=!looping;ui.loop.classList.toggle('active',looping);ui.loop.textContent=looping?'↻ Loop ON':'↻ Loop'});
 ui.play.addEventListener('click',()=>{
   playbackMode='shot';
@@ -629,103 +637,292 @@ const quickAxes=[
   ['Zoom',ui.qZoom,$('qZoomVal')],
   ['Rotate',ui.qRotate,$('qRotateVal')]
 ];
+
+const motionState={
+  dx:0,
+  dy:0,
+  scale:1,
+  rot:0,
+  bendX:0,
+  bendY:0,
+  rhythm:[.17,.50,.83]
+};
+let motionDrag=null;
+
 function quickValue(el){return +(el?.value||0)}
-function quickActive(){
-  return quickAxes.some(([,el])=>Math.abs(quickValue(el))>.05);
+function stageMetrics(){
+  const r=ui.stage.getBoundingClientRect();
+  return {w:r.width,h:r.height,baseX:r.width*.5,baseY:r.height*.47,baseW:r.width*.36,baseH:r.height*.40};
 }
-function quickPreviewState(s=shot()){
-  const last=s.points[s.points.length-1],tar=targetFor(s);
-  const from=new THREE.Vector3(...last);
-  const forward=tar.clone().sub(from).normalize();
-  let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
-  if(right.lengthSq()<1e-6) right.set(1,0,0); else right.normalize();
-
-  const h=quickValue(ui.qHorizontal),v=quickValue(ui.qVertical),z=quickValue(ui.qZoom);
-  const pan=quickValue(ui.qPan),tilt=quickValue(ui.qTilt),rot=quickValue(ui.qRotate);
-
-  const next=from.clone().addScaledVector(right,h*.22).addScaledVector(forward,z*.20);
-  next.y=clamp(next.y+v*.16,.35,3.7);
-
-  const lookOffset=right.clone().multiplyScalar(pan*.12);
-  lookOffset.y+=tilt*.10;
-
+function endpointActive(){
+  return Math.abs(motionState.dx)>2 || Math.abs(motionState.dy)>2 || Math.abs(motionState.scale-1)>.012 || Math.abs(motionState.rot)>.35;
+}
+function motionActive(){
+  return endpointActive() || Math.abs(motionState.bendX)>2 || Math.abs(motionState.bendY)>2;
+}
+function curve2D(t){
+  const g=stageMetrics();
+  const x0=g.baseX,y0=g.baseY;
+  const x2=g.baseX+motionState.dx,y2=g.baseY+motionState.dy;
+  const x1=(x0+x2)/2+motionState.bendX,y1=(y0+y2)/2+motionState.bendY;
+  const u=1-t;
   return {
-    next,
-    lookOffset,
-    roll:THREE.MathUtils.degToRad(rot*1.6),
-    h,v,z,pan,tilt,rot
+    x:u*u*x0+2*u*t*x1+t*t*x2,
+    y:u*u*y0+2*u*t*y1+t*t*y2
   };
 }
-function resetQuickControls(){
+function curveStyleAt(t){
+  return {
+    scale:1+(motionState.scale-1)*t,
+    rot:motionState.rot*t
+  };
+}
+function positionMotionElement(el,t){
+  const g=stageMetrics(),p=curve2D(t),st=curveStyleAt(t);
+  el.style.left=p.x+'px';
+  el.style.top=p.y+'px';
+  el.style.width=(g.baseW*st.scale)+'px';
+  el.style.height=(g.baseH*st.scale)+'px';
+  el.style.transform='translate(-50%,-50%) rotate('+st.rot+'deg)';
+}
+function updateMotionUI(){
+  if(!ui.nextFrame)return;
+  const g=stageMetrics(),end=curve2D(1);
+  ui.nextFrame.style.left=end.x+'px';
+  ui.nextFrame.style.top=end.y+'px';
+  ui.nextFrame.style.width=(g.baseW*motionState.scale)+'px';
+  ui.nextFrame.style.height=(g.baseH*motionState.scale)+'px';
+  ui.nextFrame.style.transform='translate(-50%,-50%) rotate('+motionState.rot+'deg)';
+
+  const control={
+    x:(g.baseX+end.x)/2+motionState.bendX,
+    y:(g.baseY+end.y)/2+motionState.bendY
+  };
+  ui.ribbonHandle.style.left=control.x+'px';
+  ui.ribbonHandle.style.top=control.y+'px';
+
+  const visible=endpointActive();
+  ui.ribbonHandle.style.opacity=visible?'1':'0';
+  ui.ribbonHandle.style.pointerEvents=visible?'auto':'none';
+  ui.ghostFrames.forEach((el,i)=>{
+    positionMotionElement(el,motionState.rhythm[i]);
+    el.style.opacity=visible?'1':'0';
+    el.style.pointerEvents=visible?'auto':'none';
+  });
+  ui.motionApply.disabled=!visible;
+  ui.motionApply.style.opacity=visible?'1':'.45';
+
+  drawFrameOverlay();
+}
+function resetMotionGesture(){
+  motionState.dx=0;motionState.dy=0;motionState.scale=1;motionState.rot=0;
+  motionState.bendX=0;motionState.bendY=0;motionState.rhythm=[.17,.50,.83];
   quickAxes.forEach(([,el,out])=>{
     if(el)el.value='0';
     if(out)out.textContent='0.0';
   });
-  drawFrameOverlay();
+  updateMotionUI();
 }
 function drawFrameOverlay(){
   if(!frameCtx || !ui.frameOverlay)return;
-  const r=ui.stage.getBoundingClientRect(),w=r.width,h=r.height;
-  frameCtx.clearRect(0,0,w,h);
+  const g=stageMetrics();
+  frameCtx.clearRect(0,0,g.w,g.h);
   if(playing)return;
 
-  const p=quickPreviewState();
-  const active=quickActive();
-
-  // Reference-source interaction: the current frame stays fixed while
-  // intermediate and end frames explain the intended move.
-  const baseW=w*.36,baseH=h*.40,baseX=w*.5,baseY=h*.47;
-  frameCtx.save();
-  frameCtx.strokeStyle='rgba(255,255,255,.42)';
+  // Current frame is the fixed reference.
+  frameCtx.strokeStyle='rgba(255,255,255,.44)';
   frameCtx.lineWidth=1;
-  frameCtx.strokeRect(baseX-baseW/2,baseY-baseH/2,baseW,baseH);
-  frameCtx.restore();
+  frameCtx.strokeRect(g.baseX-g.baseW/2,g.baseY-g.baseH/2,g.baseW,g.baseH);
 
-  if(!active)return;
+  if(!endpointActive())return;
 
-  for(let i=1;i<=7;i++){
-    const t=i/7;
-    const eased=t*t*(3-2*t);
-    const scale=1+p.z*.024*eased;
-    const fw=baseW*scale,fh=baseH*scale;
-    const cx=baseX+(p.h*.010*w*eased)+(p.pan*.0075*w*eased*eased);
-    const cy=baseY-(p.v*.012*h*eased)-(p.tilt*.008*h*eased*eased);
-    frameCtx.save();
-    frameCtx.translate(cx,cy);
-    frameCtx.rotate(p.rot*Math.PI/180*1.3*eased);
-    frameCtx.strokeStyle=i===7?'rgba(220,170,248,.98)':'rgba(194,126,230,'+(.12+i*.075)+')';
-    frameCtx.lineWidth=i===7?1.8:1;
-    frameCtx.strokeRect(-fw/2,-fh/2,fw,fh);
-    frameCtx.restore();
+  // Motion Ribbon: geometry = path hint.
+  const p0=curve2D(0),p1={
+    x:(p0.x+curve2D(1).x)/2+motionState.bendX,
+    y:(p0.y+curve2D(1).y)/2+motionState.bendY
+  },p2=curve2D(1);
+  frameCtx.beginPath();
+  frameCtx.moveTo(p0.x,p0.y);
+  frameCtx.quadraticCurveTo(p1.x,p1.y,p2.x,p2.y);
+  frameCtx.strokeStyle='rgba(220,170,248,.55)';
+  frameCtx.lineWidth=1.4;
+  frameCtx.setLineDash([5,5]);
+  frameCtx.stroke();
+  frameCtx.setLineDash([]);
+
+  // Equal-time ticks make the rhythm editing legible.
+  motionState.rhythm.forEach((t,i)=>{
+    const p=curve2D(t);
+    frameCtx.fillStyle=i===1?'rgba(255,228,148,.95)':'rgba(233,202,249,.82)';
+    frameCtx.beginPath();frameCtx.arc(p.x,p.y,2.6,0,Math.PI*2);frameCtx.fill();
+  });
+}
+function worldMotionPreview(s=shot()){
+  const g=stageMetrics();
+  const last=s.points[s.points.length-1],tar=targetFor(s);
+  const from=new THREE.Vector3(...last);
+  const forward=tar.clone().sub(from).normalize();
+  let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
+  if(right.lengthSq()<1e-6)right.set(1,0,0);else right.normalize();
+  const up=new THREE.Vector3(0,1,0);
+
+  const lateral=(motionState.dx/g.w)*5.2;
+  const vertical=(-motionState.dy/g.h)*3.3;
+  const push=(motionState.scale-1)*5.6;
+  const end=from.clone().addScaledVector(right,lateral).addScaledVector(forward,push).addScaledVector(up,vertical);
+  end.x=clamp(end.x,-5.2,5.2);end.y=clamp(end.y,.35,3.7);end.z=clamp(end.z,-5.2,7.8);
+
+  const mid=from.clone().lerp(end,.5)
+    .addScaledVector(right,(motionState.bendX/g.w)*6.4)
+    .addScaledVector(up,(-motionState.bendY/g.h)*4.0);
+
+  const at=t=>{
+    const u=1-t;
+    return from.clone().multiplyScalar(u*u)
+      .add(mid.clone().multiplyScalar(2*u*t))
+      .add(end.clone().multiplyScalar(t*t));
+  };
+  const samples=[];
+  for(let i=0;i<=32;i++)samples.push(at(i/32));
+
+  return {from,end,mid,at,samples};
+}
+function nearestCurveT(clientX,clientY){
+  const r=ui.stage.getBoundingClientRect(),x=clientX-r.left,y=clientY-r.top;
+  let bestT=0,best=Infinity;
+  for(let i=0;i<=100;i++){
+    const t=i/100,p=curve2D(t),d=(p.x-x)*(p.x-x)+(p.y-y)*(p.y-y);
+    if(d<best){best=d;bestT=t}
   }
+  return bestT;
+}
+function compileMotionGesture(){
+  if(!endpointActive()){
+    setStatus('DRAG NEXT FRAME');
+    return;
+  }
+  stopPlayback();controls.enabled=true;
+  const s=shot(),preview=worldMotionPreview(s);
+  const prev=s.segments[s.segments.length-1]||{duration:1.8,speed:1,accelIn:0,brakeOut:0};
+  const inheritedSpeed=prev.speed||1;
+
+  let worldSpeed=1.2;
+  if(s.points.length>=2 && s.segments.length){
+    const a=s.points[s.points.length-2],b=s.points[s.points.length-1];
+    const d=pointDistance(a,b),tm=effectiveDuration(prev);
+    if(d>.05&&tm>.05)worldSpeed=d/tm;
+  }
+  let pathLength=0;
+  for(let i=1;i<preview.samples.length;i++)pathLength+=preview.samples[i].distanceTo(preview.samples[i-1]);
+  const totalTime=clamp(pathLength/Math.max(.35,worldSpeed),.8,8);
+  const segmentTime=totalTime/4;
+
+  // Ghost frames are equal-time samples. Their spatial spacing therefore *is*
+  // the acceleration profile: close frames = slow, wide frames = fast.
+  const authoredTs=[...motionState.rhythm,1];
+  authoredTs.forEach((t,idx)=>{
+    const p=preview.at(t);
+    s.points.push([clamp(p.x,-5.2,5.2),clamp(p.y,.35,3.7),clamp(p.z,-5.2,7.8)]);
+    s.segments.push({
+      duration:segmentTime*inheritedSpeed,
+      speed:inheritedSpeed,
+      accelIn:0,
+      brakeOut:idx===authoredTs.length-1?3:0
+    });
+  });
+
+  // Advanced Pan/Tilt remain available and feed the same compiler.
+  const baseTar=(targetDefs[s.targetId]||targetDefs.room).position;
+  const from=preview.end.clone();
+  const forward=baseTar.clone().sub(from).normalize();
+  let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
+  if(right.lengthSq()<1e-6)right.set(1,0,0);else right.normalize();
+  const lookOffset=right.multiplyScalar(quickValue(ui.qPan)*.12);
+  lookOffset.y+=quickValue(ui.qTilt)*.10;
+  s.lookOffset=lookOffset.toArray();
+  s.roll=THREE.MathUtils.degToRad(motionState.rot);
+
+  relabelPoints(s);
+  selectedPoint=s.points.length-1;
+  selectedSegment=s.segments.length-1;
+  refreshUI();
+  playhead=shotDuration(s);
+  applyCameraState(cameraStateAt(s,playhead));
+  refreshTimeline();
+  if(ui.heightHint)ui.heightHint.textContent='height '+preview.end.y.toFixed(2)+' m';
+  setStatus('MOTION APPLIED');
+  resetMotionGesture();
+}
+
+function syncAxesToMotion(){
+  const g=stageMetrics();
+  const h=quickValue(ui.qHorizontal),pan=quickValue(ui.qPan),v=quickValue(ui.qVertical),tilt=quickValue(ui.qTilt),z=quickValue(ui.qZoom),rot=quickValue(ui.qRotate);
+  motionState.dx=(h*.013+pan*.004)*g.w;
+  motionState.dy=(-v*.014-tilt*.004)*g.h;
+  motionState.scale=clamp(1+z*.028,.58,1.7);
+  motionState.rot=clamp(rot*1.6,-35,35);
+  motionState.bendX=pan*.009*g.w;
+  motionState.bendY=-tilt*.009*g.h;
+  updateMotionUI();
 }
 quickAxes.forEach(([,el,out])=>{
   el?.addEventListener('input',()=>{
     if(out)out.textContent=(+el.value).toFixed(1);
-    drawFrameOverlay();
+    syncAxesToMotion();
   });
 });
-ui.qReset?.addEventListener('click',()=>{
-  resetQuickControls();
-  setStatus('MOVE · RESET');
+ui.qReset?.addEventListener('click',()=>{resetMotionGesture();setStatus('MOVE · RESET')});
+ui.qApply?.addEventListener('click',compileMotionGesture);
+ui.motionApply?.addEventListener('click',compileMotionGesture);
+ui.motionReset?.addEventListener('click',()=>{resetMotionGesture();setStatus('GESTURE · RESET')});
+
+function beginMotionDrag(mode,e,index=-1){
+  e.preventDefault();e.stopPropagation();
+  const g=stageMetrics();
+  motionDrag={
+    mode,index,startX:e.clientX,startY:e.clientY,
+    dx:motionState.dx,dy:motionState.dy,scale:motionState.scale,rot:motionState.rot,
+    bendX:motionState.bendX,bendY:motionState.bendY,
+    rhythm:[...motionState.rhythm],
+    centerX:g.baseX+motionState.dx,centerY:g.baseY+motionState.dy
+  };
+}
+ui.nextFrame?.addEventListener('pointerdown',e=>{
+  if(e.target===ui.frameResize||e.target===ui.frameRotate)return;
+  beginMotionDrag('frame',e);
 });
-ui.qApply?.addEventListener('click',()=>{
-  if(!quickActive()){
-    setStatus('MOVE · SET A DIRECTION');
-    return;
+ui.frameResize?.addEventListener('pointerdown',e=>beginMotionDrag('resize',e));
+ui.frameRotate?.addEventListener('pointerdown',e=>beginMotionDrag('rotate',e));
+ui.ribbonHandle?.addEventListener('pointerdown',e=>beginMotionDrag('bend',e));
+ui.ghostFrames.forEach((el,i)=>el?.addEventListener('pointerdown',e=>beginMotionDrag('rhythm',e,i)));
+
+window.addEventListener('pointermove',e=>{
+  if(!motionDrag)return;
+  const d=motionDrag,dx=e.clientX-d.startX,dy=e.clientY-d.startY;
+  if(d.mode==='frame'){
+    const g=stageMetrics();
+    motionState.dx=clamp(d.dx+dx,-g.w*.36,g.w*.36);
+    motionState.dy=clamp(d.dy+dy,-g.h*.30,g.h*.30);
+  }else if(d.mode==='resize'){
+    motionState.scale=clamp(d.scale+(dx-dy)*.0035,.58,1.7);
+  }else if(d.mode==='bend'){
+    motionState.bendX=d.bendX+dx;
+    motionState.bendY=d.bendY+dy;
+  }else if(d.mode==='rotate'){
+    const r=ui.stage.getBoundingClientRect();
+    const cx=r.left+d.centerX,cy=r.top+d.centerY;
+    const angle=Math.atan2(e.clientY-cy,e.clientX-cx)*180/Math.PI+90;
+    motionState.rot=clamp(angle,-35,35);
+  }else if(d.mode==='rhythm'){
+    let t=nearestCurveT(e.clientX,e.clientY);
+    const lo=d.index===0?.05:motionState.rhythm[d.index-1]+.06;
+    const hi=d.index===2?.95:motionState.rhythm[d.index+1]-.06;
+    motionState.rhythm[d.index]=clamp(t,lo,hi);
   }
-  stopPlayback();controls.enabled=true;
-  const s=shot(),preview=quickPreviewState(s);
-  s.lookOffset=preview.lookOffset.toArray();
-  s.roll=preview.roll;
-  appendPathPoint(s,preview.next.toArray());
-  playhead=shotDuration(s);
-  applyCameraState(cameraStateAt(s,playhead));
-  refreshTimeline();
-  if(ui.heightHint) ui.heightHint.textContent='height '+preview.next.y.toFixed(2)+' m';
-  setStatus('APPLIED · '+s.pointLabels[s.points.length-2]+'→'+s.pointLabels[s.points.length-1]);
-  resetQuickControls();
+  updateMotionUI();
+  setStatus(d.mode==='rhythm'?'RHYTHM':'MOTION PREVIEW');
 });
+window.addEventListener('pointerup',()=>{motionDrag=null});
 
 ui.timeline.addEventListener('input',e=>{stopPlayback();controls.enabled=true;playhead=+e.target.value;applyCameraState(cameraStateAt(shot(),playhead));refreshTimeline();setStatus('SCRUB')});
 
@@ -739,7 +936,7 @@ function resizeRenderer(){
   ui.frameOverlay.height=Math.round(r.height*dpr);
   frameCtx.setTransform(dpr,0,0,dpr,0,0);
   resizeMini(ui.top,topCtx);resizeMini(ui.side,sideCtx);
-  drawFrameOverlay();
+  updateMotionUI();
 }
 function resizeMini(canvas,context){
   const r=canvas.parentElement.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);
@@ -805,20 +1002,26 @@ function drawMini(context,canvas,mode){
     }
     context.fillStyle='#c9bacf';context.font='9px ui-monospace';context.fillText(s.pointLabels[i],q[0]+7,q[1]-6)
   });
-  if(quickActive()){
-    const preview=quickPreviewState(s),last=s.points[s.points.length-1];
-    const a=mode==='top'?m.map(last[0],last[2]):m.map(last[2],last[1]);
-    const b=mode==='top'?m.map(preview.next.x,preview.next.z):m.map(preview.next.z,preview.next.y);
-    context.strokeStyle='rgba(255,224,139,.72)';
-    context.lineWidth=1.2;
+  if(endpointActive()){
+    const preview=worldMotionPreview(s);
+    context.strokeStyle='rgba(255,224,139,.78)';
+    context.lineWidth=1.3;
     context.setLineDash([4,4]);
-    context.beginPath();context.moveTo(...a);context.lineTo(...b);context.stroke();
-    context.setLineDash([]);
-    context.fillStyle='#ffe08b';
-    context.beginPath();context.arc(b[0],b[1],4.5,0,Math.PI*2);context.fill();
+    context.beginPath();
+    preview.samples.forEach((p,i)=>{
+      const q=mode==='top'?m.map(p.x,p.z):m.map(p.z,p.y);
+      if(!i)context.moveTo(...q);else context.lineTo(...q);
+    });
+    context.stroke();context.setLineDash([]);
+    motionState.rhythm.forEach(t=>{
+      const p=preview.at(t),q=mode==='top'?m.map(p.x,p.z):m.map(p.z,p.y);
+      context.fillStyle='rgba(238,205,251,.95)';context.beginPath();context.arc(q[0],q[1],3,0,Math.PI*2);context.fill();
+    });
+    const b=mode==='top'?m.map(preview.end.x,preview.end.z):m.map(preview.end.z,preview.end.y);
+    context.fillStyle='#ffe08b';context.beginPath();context.arc(b[0],b[1],4.5,0,Math.PI*2);context.fill();
     if(mode==='side'){
       context.fillStyle='#ffe08b';context.font='9px ui-monospace';
-      context.fillText('PREVIEW '+preview.next.y.toFixed(2)+'m',Math.min(m.w-92,b[0]+9),Math.max(18,b[1]-7));
+      context.fillText('NEXT '+preview.end.y.toFixed(2)+'m',Math.min(m.w-78,b[0]+9),Math.max(18,b[1]-7));
     }
   }
   const cp=mode==='top'?m.map(camera.position.x,camera.position.z):m.map(camera.position.z,camera.position.y);context.fillStyle='#ffe08b';context.beginPath();context.arc(cp[0],cp[1],4,0,Math.PI*2);context.fill();
@@ -951,5 +1154,6 @@ setTargetMarker();
 refreshUI();
 resizeRenderer();
 applyCameraState(cameraStateAt(shot(),0));
+resetMotionGesture();
 ui.loading.classList.add('hidden');
 requestAnimationFrame(animate);
