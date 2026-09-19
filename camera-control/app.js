@@ -638,11 +638,15 @@ document.querySelectorAll('[data-motion-preset]').forEach(btn=>{
 
 window.addEventListener('keydown',e=>{
   const tag=document.activeElement?.tagName;
-  if(tag==='INPUT' || tag==='BUTTON' || tag==='SUMMARY') return;
+  if(tag==='INPUT' || tag==='BUTTON' || tag==='SUMMARY' || tag==='SELECT') return;
   if(e.code==='Space'){
     e.preventDefault();
     ui.play.click();
     syncPlayLabels();
+  }
+  if(e.key==='Enter' && endpointActive()){
+    e.preventDefault();
+    compileMotionGesture();
   }
   if(e.key==='0'){
     ui.origin.click();
@@ -889,20 +893,43 @@ function worldMotionPreview(s=shot()){
   const end=from.clone().addScaledVector(right,lateral).addScaledVector(forward,push).addScaledVector(up,vertical);
   end.x=clamp(end.x,-5.2,5.2);end.y=clamp(end.y,.35,3.7);end.z=clamp(end.z,-5.2,7.8);
 
-  const mid=from.clone().lerp(end,.5)
-    .addScaledVector(right,(motionState.bendX/g.w)*6.4)
+  const delta=end.clone().sub(from);
+  const distance=Math.max(.08,delta.length());
+  const baseDir=delta.clone().normalize();
+
+  // Once a move has been committed, the next move inherits the outgoing
+  // heading of the existing path. The carry is deliberately weak: it makes
+  // chained moves flow, but a new drag still takes control immediately.
+  let incomingDir=baseDir.clone();
+  if(s.points.length>=2){
+    const prev=new THREE.Vector3(...s.points[s.points.length-2]);
+    const d=from.clone().sub(prev);
+    if(d.lengthSq()>.0001)incomingDir=d.normalize();
+  }
+  const startDir=incomingDir.clone().multiplyScalar(.62).add(baseDir.clone().multiplyScalar(.38));
+  if(startDir.lengthSq()<.0001)startDir.copy(baseDir);else startDir.normalize();
+
+  const bend=right.clone().multiplyScalar((motionState.bendX/g.w)*6.4)
     .addScaledVector(up,(-motionState.bendY/g.h)*4.0);
 
+  const c1=from.clone()
+    .addScaledVector(startDir,distance*.34)
+    .addScaledVector(bend,.12);
+  const c2=end.clone()
+    .addScaledVector(baseDir,-distance*.30)
+    .addScaledVector(bend,.88);
+
   const at=t=>{
-    const u=1-t;
-    return from.clone().multiplyScalar(u*u)
-      .add(mid.clone().multiplyScalar(2*u*t))
-      .add(end.clone().multiplyScalar(t*t));
+    const u=1-t,u2=u*u,t2=t*t;
+    return from.clone().multiplyScalar(u2*u)
+      .add(c1.clone().multiplyScalar(3*u2*t))
+      .add(c2.clone().multiplyScalar(3*u*t2))
+      .add(end.clone().multiplyScalar(t2*t));
   };
   const samples=[];
-  for(let i=0;i<=32;i++)samples.push(at(i/32));
+  for(let i=0;i<=40;i++)samples.push(at(i/40));
 
-  return {from,end,mid,at,samples};
+  return {from,end,c1,c2,at,samples};
 }
 function nearestCurveT(clientX,clientY){
   const r=ui.stage.getBoundingClientRect(),x=clientX-r.left,y=clientY-r.top;
@@ -936,6 +963,12 @@ function compileMotionGesture(){
 
   // Ghost frames are equal-time samples. Their spatial spacing therefore *is*
   // the acceleration profile: close frames = slow, wide frames = fast.
+  // If this shot already ended here, adding another move turns that old
+  // endpoint into a pass-through node instead of braking and restarting.
+  if(s.segments.length){
+    s.segments[s.segments.length-1].brakeOut=0;
+  }
+
   const authoredTs=[...motionState.rhythm,1];
   authoredTs.forEach((t,idx)=>{
     const p=preview.at(t);
@@ -967,8 +1000,16 @@ function compileMotionGesture(){
   applyCameraState(cameraStateAt(s,playhead));
   refreshTimeline();
   if(ui.heightHint)ui.heightHint.textContent='height '+preview.end.y.toFixed(2)+' m';
-  setStatus('MOTION APPLIED');
+
+  s._chainMoves=(s._chainMoves||0)+1;
+
+  // Re-anchor: the camera is now physically at the committed endpoint.
+  // Reset only the gesture surface, not the authored path, so the next drag
+  // continues from this exact point.
   resetMotionGesture();
+  ui.motionUI?.classList.add('reanchor');
+  setTimeout(()=>ui.motionUI?.classList.remove('reanchor'),220);
+  setStatus('CONTINUE · DRAG NEXT');
 }
 
 function syncAxesToMotion(){
@@ -991,6 +1032,7 @@ quickAxes.forEach(([,el,out])=>{
 ui.qReset?.addEventListener('click',()=>{resetMotionGesture();setStatus('MOVE · RESET')});
 ui.qApply?.addEventListener('click',compileMotionGesture);
 ui.motionApply?.addEventListener('click',compileMotionGesture);
+if(ui.motionApply)ui.motionApply.title='Apply and continue from this endpoint';
 ui.motionReset?.addEventListener('click',()=>{resetMotionGesture();setStatus('GESTURE · RESET')});
 
 function beginMotionDrag(mode,e,index=-1){
