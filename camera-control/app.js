@@ -389,6 +389,36 @@ function posOnSegment(s,i,t){
   const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[i+1],p3=pts[Math.min(pts.length-1,i+2)];
   return catmull(p0,p1,p2,p3,t);
 }
+
+const silkyCurveCache=new WeakMap();
+function clearSilky(s){
+  if(!s)return;
+  s.stabilized=false;
+  silkyCurveCache.delete(s);
+}
+function silkyCurveFor(s){
+  let curve=silkyCurveCache.get(s);
+  if(curve)return curve;
+  const pts=s.points.map(p=>new THREE.Vector3(...p));
+  curve=new THREE.CatmullRomCurve3(pts,false,'centripetal',.5);
+  curve.arcLengthDivisions=Math.max(180,pts.length*24);
+  curve.updateArcLengths();
+  silkyCurveCache.set(s,curve);
+  return curve;
+}
+function silkyProgress(t,ramp=.18){
+  t=clamp(t,0,1);
+  ramp=clamp(ramp,.08,.32);
+  const cruise=1/(1-ramp);
+  const integral=x=>2.5*x*x*x*x-3*x*x*x*x*x+x*x*x*x*x*x;
+  if(t<ramp){
+    return cruise*ramp*integral(t/ramp);
+  }
+  if(t>1-ramp){
+    return 1-cruise*ramp*integral((1-t)/ramp);
+  }
+  return cruise*(t-ramp*.5);
+}
 function segmentAtTime(s,time){
   let cursor=0;
   for(let i=0;i<s.segments.length;i++){
@@ -401,7 +431,16 @@ function segmentAtTime(s,time){
   return {i:s.segments.length-1,local:1,cursor:0,d:1};
 }
 function cameraStateAt(s,time){
-  const hit=segmentAtTime(s,clamp(time,0,shotDuration(s)));
+  const total=shotDuration(s);
+  if(s.stabilized && s.points.length>=2 && total>0){
+    const normalized=clamp(time/total,0,1);
+    const u=silkyProgress(normalized,.18);
+    const curve=silkyCurveFor(s);
+    const p=curve.getPointAt(u);
+    const segment=Math.min(s.segments.length-1,Math.floor(normalized*Math.max(1,s.segments.length)));
+    return {position:p,target:targetFor(s).clone(),roll:s.roll||0,segment,u};
+  }
+  const hit=segmentAtTime(s,clamp(time,0,total));
   const u=smoothSegmentWarp(s,hit.i,hit.local);
   const p=posOnSegment(s,hit.i,u);
   return {position:new THREE.Vector3(...p), target:targetFor(s).clone(), roll:s.roll||0, segment:hit.i, u};
@@ -529,6 +568,7 @@ function refreshUI(){
 }
 
 function setSegment(prop,value){
+  clearSilky(shot());
   shot().segments[selectedSegment][prop]=+value;
   renderTiming();renderShots();refreshTimeline();
   setStatus('SEGMENT · '+shot().pointLabels[selectedSegment]+'→'+shot().pointLabels[selectedSegment+1]);
@@ -552,6 +592,7 @@ function autoHeightForXY(s,x,z){
   return clamp(last[1]+slope*nextHorizontal,.65,3.3);
 }
 function appendPathPoint(s,p){
+  clearSilky(s);
   const n=s.points.length;
   const previousSegment=s.segments[s.segments.length-1] || {duration:1.8,speed:1,accelIn:3,brakeOut:3};
   const nextPoint=[
@@ -597,7 +638,7 @@ ui.addPoint.addEventListener('click',()=>{
 });
 ui.deletePoint.addEventListener('click',()=>{
   if(shot().points.length<=2)return;
-  stopPlayback();const s=shot();s.points.splice(selectedPoint,1);
+  stopPlayback();const s=shot();clearSilky(s);s.points.splice(selectedPoint,1);
   if(selectedPoint<s.segments.length)s.segments.splice(selectedPoint,1);else s.segments.pop();
   while(s.segments.length<s.points.length-1)s.segments.push({duration:1.8,speed:1,accelIn:5,brakeOut:5});
   relabelPoints(s);selectedPoint=clamp(selectedPoint,0,s.points.length-1);selectedSegment=clamp(Math.min(selectedPoint,s.segments.length-1),0,s.segments.length-1);refreshUI();setStatus('POINT DELETED');
@@ -665,6 +706,8 @@ function stabilizeCurrentPath(){
   });
 
   s._lastStabilizeBackup={points:originalPoints,segments:originalSegments};
+  s.stabilized=true;
+  silkyCurveCache.delete(s);
   relabelPoints(s);
   const totalAfter=shotDuration(s);
   playhead=totalAfter*progress;
@@ -677,7 +720,7 @@ function stabilizeCurrentPath(){
   ui.stabilizePath?.classList.remove('done');
   requestAnimationFrame(()=>ui.stabilizePath?.classList.add('done'));
   setTimeout(()=>ui.stabilizePath?.classList.remove('done'),520);
-  setStatus('STABILIZED · LIGHT '+Math.round(moved*100)+'cm');
+  setStatus('STABILIZED · PATH + SPEED + TURN');
 }
 ui.stabilizePath?.addEventListener('click',stabilizeCurrentPath);
 
@@ -1078,7 +1121,8 @@ function compileMotionGesture(){
     return;
   }
   stopPlayback();syncNavigationMode();
-  const s=shot(),preview=worldMotionPreview(s);
+  const s=shot();clearSilky(s);
+  const preview=worldMotionPreview(s);
   const beforePoints=s.points.length;
   const beforeSegments=s.segments.length;
   const previousBrakeOut=s.segments.length?s.segments[s.segments.length-1].brakeOut:null;
@@ -1275,6 +1319,7 @@ function compactPilotSamples(samples,maxPoints=18){
 
 function commitPilotGesture(){
   const s=shot();
+  clearSilky(s);
   const samples=compactPilotSamples(pilotState.samples);
   if(samples.length<2)return false;
 
@@ -1382,6 +1427,7 @@ ui.motionApply?.addEventListener('click',compileMotionGesture);
 if(ui.motionApply)ui.motionApply.title='Apply and continue from this endpoint';
 function undoLastChainMove(){
   const s=shot(),history=s._chainHistory;
+  clearSilky(s);
   if(!history?.length)return false;
   stopPlayback();syncNavigationMode();
   const step=history.pop();
@@ -1691,6 +1737,7 @@ function bindMini(canvas,mode){
   canvas.addEventListener('pointermove',e=>{
     if(!drag)return;
     const [x,y]=localXY(e,canvas),m=mapper(canvas,mode),v=m.unmap(x,y),p=shot().points[drag.index];
+    clearSilky(shot());
     if(mode==='top'){
       p[0]=clamp(v[0],-5.2,5.2);
       p[2]=clamp(v[1],-5.2,7.8);
