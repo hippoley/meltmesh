@@ -331,13 +331,18 @@ let sequenceIndex = 0;
 let lastTs = performance.now();
 let frameDt = 1/60;
 let cinematicOrientationPrimed = false;
-const perceptualLookState={
+const perceptualPositionState={
   position:new THREE.Vector3(),
   velocity:new THREE.Vector3(),
   acceleration:new THREE.Vector3(),
   ready:false
 };
-const perceptualRollState={value:0,velocity:0,acceleration:0,ready:false};
+const perceptualRotationState={
+  quaternion:new THREE.Quaternion(),
+  velocity:new THREE.Vector3(),
+  acceleration:new THREE.Vector3(),
+  ready:false
+};
 let drag = null;
 let pointerDown = null;
 
@@ -695,8 +700,8 @@ function samplePath(s=shot(),count=180){
   return arr;
 }
 function resetPerceptualState(){
-  perceptualLookState.ready=false;
-  perceptualRollState.ready=false;
+  perceptualPositionState.ready=false;
+  perceptualRotationState.ready=false;
   cinematicOrientationPrimed=false;
 }
 function clampVectorLength(v,maxLen){
@@ -712,7 +717,7 @@ function stepThirdOrderVector(slot,desired,dt,omega,jerkLimit,accelLimit,speedLi
     return slot.position;
   }
 
-  const steps=Math.max(1,Math.ceil(dt/.010));
+  const steps=Math.max(1,Math.ceil(dt/.008));
   const h=dt/steps;
   for(let step=0;step<steps;step++){
     const error=desired.clone().sub(slot.position);
@@ -729,49 +734,103 @@ function stepThirdOrderVector(slot,desired,dt,omega,jerkLimit,accelLimit,speedLi
   }
   return slot.position;
 }
-function stepThirdOrderScalar(slot,desired,dt,omega,jerkLimit,accelLimit,speedLimit){
+function quaternionErrorVector(current,desired){
+  const inv=current.clone().invert();
+  const q=desired.clone().multiply(inv).normalize();
+  if(q.w<0)q.set(-q.x,-q.y,-q.z,-q.w);
+  const w=clamp(q.w,-1,1);
+  const angle=2*Math.acos(w);
+  const sinHalf=Math.sqrt(Math.max(0,1-w*w));
+  if(angle<1e-7 || sinHalf<1e-7)return new THREE.Vector3();
+  return new THREE.Vector3(q.x/sinHalf,q.y/sinHalf,q.z/sinHalf).multiplyScalar(angle);
+}
+function stepThirdOrderQuaternion(slot,desired,dt,omega,jerkLimit,accelLimit,speedLimit){
   if(!slot.ready){
-    slot.value=desired;slot.velocity=0;slot.acceleration=0;slot.ready=true;
-    return slot.value;
+    slot.quaternion.copy(desired);
+    slot.velocity.set(0,0,0);
+    slot.acceleration.set(0,0,0);
+    slot.ready=true;
+    return slot.quaternion;
   }
-  const steps=Math.max(1,Math.ceil(dt/.010));
+
+  const steps=Math.max(1,Math.ceil(dt/.008));
   const h=dt/steps;
   for(let step=0;step<steps;step++){
-    let jerk=(desired-slot.value)*omega*omega*omega
-      -3*omega*omega*slot.velocity
-      -3*omega*slot.acceleration;
-    jerk=clamp(jerk,-jerkLimit,jerkLimit);
-    slot.acceleration=clamp(slot.acceleration+jerk*h,-accelLimit,accelLimit);
-    slot.velocity=clamp(slot.velocity+slot.acceleration*h,-speedLimit,speedLimit);
-    slot.value+=slot.velocity*h;
+    const error=quaternionErrorVector(slot.quaternion,desired);
+    const jerk=error.multiplyScalar(omega*omega*omega)
+      .addScaledVector(slot.velocity,-3*omega*omega)
+      .addScaledVector(slot.acceleration,-3*omega);
+    clampVectorLength(jerk,jerkLimit);
+
+    slot.acceleration.addScaledVector(jerk,h);
+    clampVectorLength(slot.acceleration,accelLimit);
+    slot.velocity.addScaledVector(slot.acceleration,h);
+    clampVectorLength(slot.velocity,speedLimit);
+
+    const delta=slot.velocity.clone().multiplyScalar(h);
+    const angle=delta.length();
+    if(angle>1e-8){
+      const dq=new THREE.Quaternion().setFromAxisAngle(delta.multiplyScalar(1/angle),angle);
+      slot.quaternion.premultiply(dq).normalize();
+    }
   }
-  return slot.value;
+  return slot.quaternion;
+}
+function perceptualMotionBudget(s=shot(),time=playhead){
+  let turn=0;
+  if(s.stabilized && s.points.length>2){
+    const total=Math.max(.001,shotDuration(s));
+    const u=silkyDistanceAtTime(s,clamp(time/total,0,1));
+    const curve=silkyMotionFor(s).curve;
+    const a=curve.getTangentAt(clamp(u-.014,0,1)).normalize();
+    const b=curve.getTangentAt(clamp(u+.014,0,1)).normalize();
+    turn=clamp(Math.acos(clamp(a.dot(b),-1,1))/.34,0,1);
+  }
+  const focus=subjectTransferActivity(s,time);
+  const softness=clamp(Math.max(turn,focus*.88),0,1);
+  return {
+    positionOmega:mix(18,12.5,softness),
+    positionJerk:mix(260,145,softness),
+    positionAccel:mix(28,18,softness),
+    rotationOmega:mix(16,10.5,softness),
+    rotationJerk:mix(18,8.5,softness),
+    rotationAccel:mix(5.2,3.0,softness)
+  };
+}
+function desiredCameraQuaternion(position,target,roll=0){
+  const lookMatrix=new THREE.Matrix4().lookAt(position,target,camera.up);
+  const q=new THREE.Quaternion().setFromRotationMatrix(lookMatrix);
+  if(Math.abs(roll)>.00001){
+    q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),roll));
+  }
+  return q.normalize();
 }
 function applyCameraState(state){
-  camera.position.copy(state.position);
-
   if(playing && !navigationMode){
-    // Perceptual state smoothing: a triple-pole critically damped system.
-    // State = [target position, velocity, acceleration], input = bounded jerk.
-    const smoothTarget=stepThirdOrderVector(
-      perceptualLookState,state.target,Math.max(1/240,frameDt),
-      10.5,150,28,14
-    );
-    const smoothRoll=stepThirdOrderScalar(
-      perceptualRollState,state.roll||0,Math.max(1/240,frameDt),
-      12.5,5.0,1.0,.55
-    );
+    const dt=Math.max(1/240,frameDt);
+    const budget=perceptualMotionBudget(shot(),playhead);
 
-    controls.target.copy(smoothTarget);
-    const lookMatrix=new THREE.Matrix4().lookAt(camera.position,smoothTarget,camera.up);
-    const desired=new THREE.Quaternion().setFromRotationMatrix(lookMatrix);
-    const alpha=cinematicOrientationPrimed
-      ? 1-Math.exp(-Math.max(1/240,frameDt)*24)
-      : 1;
-    camera.quaternion.slerp(desired,alpha);
+    // Translation is only state-smoothed after the user opts into stabilization.
+    // This keeps raw authored paths exact while stabilized playback feels physically continuous.
+    const bodyPosition=shot().stabilized
+      ? stepThirdOrderVector(
+          perceptualPositionState,state.position,dt,
+          budget.positionOmega,budget.positionJerk,budget.positionAccel,8.5
+        )
+      : state.position;
+
+    camera.position.copy(bodyPosition);
+    controls.target.copy(state.target);
+
+    const desired=desiredCameraQuaternion(camera.position,state.target,state.roll||0);
+    const smoothOrientation=stepThirdOrderQuaternion(
+      perceptualRotationState,desired,dt,
+      budget.rotationOmega,budget.rotationJerk,budget.rotationAccel,2.6
+    );
+    camera.quaternion.copy(smoothOrientation);
     cinematicOrientationPrimed=true;
-    if(Math.abs(smoothRoll)>.00001)camera.rotateZ(smoothRoll);
   }else{
+    camera.position.copy(state.position);
     controls.target.copy(state.target);
     camera.lookAt(state.target);
     controls.update();
@@ -828,7 +887,7 @@ function switchShot(index,snap=true){
   resetMotionGesture();
   if(ui.stabilizePath){
     ui.stabilizePath.classList.toggle('active',!!shot().stabilized);
-    ui.stabilizePath.textContent=shot().stabilized?'已防抖 · 丝滑':'一键防抖防止卡顿';
+    ui.stabilizePath.textContent=shot().stabilized?'已防抖 · 三阶丝滑':'一键防抖防止卡顿';
   }
   setStatus('SHOT · '+shot().name.toUpperCase());
 }
@@ -1081,7 +1140,7 @@ function stabilizeCurrentPath(){
   if(ui.stabilizePath){
     ui.stabilizePath.classList.add('active');
     ui.stabilizePath.classList.remove('done');
-    ui.stabilizePath.textContent='已防抖 · 丝滑';
+    ui.stabilizePath.textContent='已防抖 · 三阶丝滑';
     requestAnimationFrame(()=>ui.stabilizePath?.classList.add('done'));
     setTimeout(()=>ui.stabilizePath?.classList.remove('done'),520);
   }
